@@ -1,0 +1,1 @@
+"""默认业务工具包（T12）。工具实现为 tools/<name>/tool.py: handle(args)。"""

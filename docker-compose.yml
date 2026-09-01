@@ -1,0 +1,92 @@
+# LCT-predict-agent · docker-compose（T24 / tech_design §7.2 骨架落地）
+# 使用：cp .env.example .env → 填必填项 → docker compose up -d --build
+version: "3.9"
+
+services:
+  db:
+    # 与本地开发「docker run … postgres:16-alpine」同源，默认值见 .env.example「数据库」节
+    image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
+      POSTGRES_DB: ${POSTGRES_DB:-agent_platform}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-app} -d ${POSTGRES_DB:-agent_platform}"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 15s
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks: [appnet]
+
+  # (2) 可选：本地开发用的 PG 容器（与 db 同源 postgres:16-alpine；默认开启持久化）——
+  #     `docker compose up -d db-dev` 创建专用库 + 数据卷；仅本地开发用，不随 upstream 拉起。
+  #     （与 db 共用一个数据卷会互相覆盖，故单独 pgdata-dev；端口也避开 5432。）
+  #  db-dev:
+  #    image: postgres:16-alpine
+  #    environment:
+  #      POSTGRES_USER: ${POSTGRES_USER:-app}
+  #      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-app}
+  #      POSTGRES_DB: ${POSTGRES_DB:-agent_platform}
+  #    ports: ["5432:5432"]
+  #    volumes:
+  #      - pgdata-dev:/var/lib/postgresql/data
+  #    networks: [appnet]
+
+  api:
+    build: ./backend
+    command: >
+      sh -c "alembic upgrade head &&
+             python -m seed.v1__base_seed &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"
+    environment:
+      # compose 内部经 db 服务名互访（不走宿主 5432，避免与本地 dev PG 抢端口）
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-agent_platform}
+      JWT_SECRET: ${JWT_SECRET:?required}
+      ADMIN_INITIAL_EMAIL: ${ADMIN_INITIAL_EMAIL:-}
+      ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
+      API_BASE_URL: http://api:8000
+      SANDBOX_DAEMON_URL: http://sandbox-daemon:9000
+      API_INTERNAL_TOKEN: ${API_INTERNAL_TOKEN:?required}
+      LLM_API_KEYS: ${LLM_API_KEYS:-}
+      WHITELIST_CIDRS: ${WHITELIST_CIDRS:-10.0.0.0/8,192.168.0.0/16}
+      SANDBOX_TIMEOUT_S: ${SANDBOX_TIMEOUT_S:-30}
+    depends_on:
+      db:
+        condition: service_healthy
+    expose: ["8000"]
+    networks: [appnet]
+
+  sandbox-daemon:
+    build: ./services/sandbox-daemon
+    privileged: true
+    environment:
+      API_INTERNAL_TOKEN: ${API_INTERNAL_TOKEN:?required}
+      TOOL_BASE_IMAGE: ${TOOL_BASE_IMAGE:-agent-tools/tool-runtime-base:latest}
+      WHITELIST_CIDRS: ${WHITELIST_CIDRS:-10.0.0.0/8,192.168.0.0/16}
+      SANDBOX_TIMEOUT_S: ${SANDBOX_TIMEOUT_S:-30}
+      SANDBOX_MEMORY_LIMIT_MB: 256
+      SANDBOX_CPUS: "0.5"
+      SANDBOX_PIDS_LIMIT: 64
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    ports:
+      - "9000:9000"
+    networks: [appnet]
+
+  nginx:
+    build: ./frontend
+    depends_on: [api]
+    ports:
+      - "80:80"
+    networks: [appnet]
+
+volumes:
+  pgdata:
+  # 本地开发 db-dev 用；`docker compose up -d db-dev` 时启用
+  # pgdata-dev:
+
+networks:
+  appnet:
+    driver: bridge

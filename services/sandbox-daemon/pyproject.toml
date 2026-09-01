@@ -1,0 +1,19 @@
+[project]
+name = "lct-sandbox-daemon"
+version = "0.1.0"
+description = "LCT-predict-agent 沙箱 daemon（T11：受限容器 + iptables 白名单 + 预热 + tool_runtime）"
+requires-python = ">=3.11"
+
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.8",
+    "docker>=7.0",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sd"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

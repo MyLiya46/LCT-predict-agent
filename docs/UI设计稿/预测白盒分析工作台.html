@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>预测白盒分析工作台</title>
+    <!-- 引入 ECharts -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        :root {
+            --primary-color: #1890ff;
+            --primary-hover: #40a9ff;
+            --success-color: #52c41a;
+            --warning-color: #fa8c16;
+            --danger-color: #ff4d4f;
+            --info-color: #12b5cb;
+            --final-color: #003a8c;
+            --text-main: #333;
+            --text-secondary: #666;
+            --text-light: #999;
+            --border-color: #d9d9d9;
+            --border-light: #f0f0f0;
+            --bg-color: #f0f2f5;
+            --white: #ffffff;
+            --radius: 6px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        /* 顶部导航 */
+        .header {
+            height: 56px;
+            background: var(--white);
+            box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+            display: flex;
+            align-items: center;
+            padding: 0 24px;
+            font-size: 18px;
+            font-weight: 600;
+            z-index: 10;
+        }
+
+        /* 核心布局 */
+        .layout-container {
+            display: flex;
+            flex: 1;
+            padding: 16px;
+            gap: 16px;
+            overflow: hidden;
+        }
+
+        /* 公共标题样式 */
+        .section-title {
+            color: var(--primary-color);
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px; 
+        }
+        .section-title::before {
+            content: "//";
+            margin-right: 6px;
+        }
+
+        /* ===== 左侧 1/4 区域 ===== */
+        .left-panel {
+            width: 25%;
+            min-width: 320px;
+            background: var(--white);
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            overflow: hidden;
+        }
+
+        .left-top-container {
+            padding: 24px 20px 16px 20px; 
+            border-bottom: 1px solid var(--border-light);
+        }
+
+        .filter-row {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+        .filter-row:last-child { margin-bottom: 0; }
+        
+        .form-control {
+            flex: 1;
+            height: 32px;
+            padding: 4px 8px;
+            font-size: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            outline: none;
+            width: 100%;
+        }
+        .form-control:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(24, 144, 255, 0.2);
+        }
+        select.form-control { cursor: pointer; }
+
+        .tag-group {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 12px;
+        }
+        .filter-tag {
+            padding: 2px 10px;
+            font-size: 12px;
+            border-radius: 12px;
+            background: #f5f5f5;
+            color: var(--text-secondary);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .filter-tag.active {
+            background: #e6f7ff;
+            color: var(--primary-color);
+            font-weight: 500;
+        }
+
+        /* 左侧SKU表格列表 */
+        .sku-table-wrapper {
+            flex: 1;
+            overflow-y: auto;
+        }
+
+        .sku-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12px; 
+            table-layout: fixed;
+        }
+
+        .sku-table th:nth-child(1) { width: 40%; }
+        .sku-table th:nth-child(2) { width: 20%; }
+        .sku-table th:nth-child(3) { width: 22%; }
+        .sku-table th:nth-child(4) { width: 18%; }
+
+        .sku-table th {
+            position: sticky;
+            top: 0;
+            background: #fafafa;
+            color: var(--text-secondary);
+            font-weight: 500;
+            text-align: left;
+            padding: 10px 8px;
+            border-bottom: 1px solid var(--border-light);
+            white-space: nowrap;
+        }
+
+        .sku-table td {
+            padding: 12px 8px;
+            border-bottom: 1px solid var(--border-light);
+            color: var(--text-main);
+            white-space: nowrap;
+        }
+
+        .sku-table tbody tr {
+            cursor: pointer;
+            transition: all 0.2s;
+            border-left: 3px solid transparent;
+        }
+
+        .sku-table tbody tr:hover { background: #fafafa; }
+        .sku-table tbody tr.active {
+            background: #e6f7ff;
+            border-left-color: var(--primary-color);
+        }
+
+        .text-ellipsis {
+            width: 100%;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: inline-block;
+            vertical-align: middle;
+        }
+
+        /* ===== 右侧 3/4 区域 ===== */
+        .right-panel {
+            flex: 1; 
+            background: var(--white);
+            border-radius: 8px;
+            padding: 24px 24px 40px 24px; 
+            box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+        }
+
+        .detail-header-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            background: #e2e2e2;
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+        }
+
+        .detail-meta-line {
+            font-size: 13px;
+            color: var(--text-secondary);
+            margin-bottom: 16px;
+        }
+
+        /* 数据信息卡片 */
+        .info-card {
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 24px;
+            background: #fafafa;
+        }
+        .info-card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+        .info-card-header h3 {
+            font-size: 16px;
+            margin-right: 12px;
+            display: flex;
+            align-items: center;
+        }
+        .chart-icon {
+            margin-right: 6px;
+            font-size: 18px;
+        }
+        .info-badge {
+            font-size: 12px;
+            padding: 2px 8px;
+            background: #fff7e6;
+            color: var(--warning-color);
+            border: 1px solid #ffd591;
+            border-radius: 12px;
+            margin-right: 8px;
+        }
+        .info-desc { font-size: 13px; color: var(--text-secondary); margin-bottom: 12px; }
+        .info-metrics {
+            font-size: 13px;
+            color: var(--text-secondary);
+            display: flex;
+            gap: 20px;
+            flex-wrap: wrap;
+        }
+        .info-metrics span strong { color: var(--text-main); font-weight: 600; margin-left: 4px; }
+        .trend-down { color: var(--danger-color) !important; }
+        .trend-up { color: var(--success-color) !important; }
+        
+        .chart-container {
+            width: 100%;
+            height: 350px;
+            margin-bottom: 32px;
+        }
+
+        /* 预测依据底侧卡片 */
+        .basis-card {
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            padding: 16px;
+            background: #fafafa;
+            margin-bottom: 40px;
+        }
+        .basis-title {
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        .basis-badge {
+            font-weight: normal;
+            font-size: 12px;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-left: 12px;
+        }
+        .month-tabs { display: flex; gap: 8px; }
+        .month-tab {
+            padding: 6px 20px;
+            font-size: 13px;
+            background: #fff;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .month-tab.active {
+            background: var(--primary-color);
+            color: #fff;
+            border-color: var(--primary-color);
+        }
+
+        /* 归因板块样式 */
+        .attribution-card {
+            border: 1px solid var(--border-light);
+            border-radius: 8px;
+            padding: 24px;
+            background: #fff;
+        }
+        .attribution-text {
+            font-size: 14px;
+            color: var(--text-main);
+            line-height: 1.6;
+            margin-bottom: 32px;
+            padding: 16px;
+            background: #f6ffed;
+            border-left: 4px solid var(--success-color);
+            border-radius: 2px 4px 4px 2px;
+        }
+        .attribution-text strong {
+            color: #000;
+            font-weight: 600;
+        }
+        .waterfall-container {
+            width: 100%;
+            height: 380px;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="header">预测白盒分析工作台</div>
+
+    <div class="layout-container">
+        <!-- ===== 左侧 1/4 区域 ===== -->
+        <div class="left-panel">
+            <div class="left-top-container">
+                <div class="section-title">SKU列表</div>
+                <div class="filter-row">
+                    <select class="form-control"><option>所有品类</option><option>智能手机</option><option>智能穿戴</option></select>
+                    <select class="form-control"><option>V2.1.0 (最新)</option><option>V2.0.5</option></select>
+                </div>
+                <div class="filter-row">
+                    <input type="text" class="form-control" placeholder="搜索SKU名称或编码...">
+                </div>
+                <div class="tag-group">
+                    <div class="filter-tag active">全部</div>
+                    <div class="filter-tag">新品</div>
+                    <div class="filter-tag">主销</div>
+                    <div class="filter-tag">淘汰</div>
+                    <div class="filter-tag">Top5</div>
+                    <div class="filter-tag">Top10</div>
+                </div>
+            </div>
+            
+            <div class="sku-table-wrapper">
+                <table class="sku-table">
+                    <thead>
+                        <tr>
+                            <th>SKU名称</th>
+                            <th>生命周期</th>
+                            <th>预测销量</th>
+                            <th>置信度</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="active" onclick="switchSKU(0)">
+                            <td><div class="text-ellipsis" title="旗舰智能手机 12GB+256GB">旗舰智能手机 12GB+256GB</div></td>
+                            <td style="color: var(--success-color);">主销</td>
+                            <td>13</td>
+                            <td>92%</td>
+                        </tr>
+                        <tr onclick="switchSKU(1)">
+                            <td><div class="text-ellipsis" title="入门级智能手表 青春版">入门级智能手表 青春版</div></td>
+                            <td style="color: var(--primary-color);">新品</td>
+                            <td>190</td>
+                            <td>85%</td>
+                        </tr>
+                        <tr onclick="switchSKU(2)">
+                            <td><div class="text-ellipsis" title="旧款平板电脑 64GB">旧款平板电脑 64GB</div></td>
+                            <td style="color: var(--danger-color);">淘汰</td>
+                            <td>300</td>
+                            <td>98%</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- ===== 右侧 3/4 区域 ===== -->
+        <div class="right-panel">
+            
+            <!-- 预测曲线图板块 -->
+            <div class="section-title">预测曲线</div>
+            
+            <div class="detail-header-title" id="r_skuName">旗舰智能手机 12GB+256GB</div>
+            <div class="detail-meta-line" id="r_skuMeta">分类：稳定 · 模型：MA6 · 非零期：40</div>
+
+            <div class="info-card">
+                <div class="info-card-header">
+                    <h3><span class="chart-icon">📊</span> <span id="r_modelType">稳定型</span></h3>
+                    <span class="info-badge">中等波动</span>
+                    <span class="info-badge" id="r_trendBadge">近期下滑</span>
+                </div>
+                <div class="info-desc" id="r_modelDesc">销量规律、波动小，采用 ML 集成模型 (GBR+RF)</div>
+                <div class="info-metrics">
+                    <span>月均 <strong id="r_avg">21</strong></span>
+                    <span>CV <strong id="r_cv">0.95</strong></span>
+                    <span>非零 <strong id="r_nonZero">40期</strong></span>
+                    <span>零值率 <strong>0%</strong></span>
+                    <span>近期趋势 <strong class="trend-down" id="r_trend">-59%</strong></span>
+                </div>
+            </div>
+
+            <!-- ECharts 多维预测折线图 -->
+            <div class="chart-container" id="mainChart"></div>
+
+            <div class="basis-card">
+                <div class="basis-title">
+                    🔍 预测依据 <span class="basis-badge">近6期移动平均</span>
+                </div>
+                <div class="month-tabs">
+                    <div class="month-tab active">2025-07</div>
+                    <div class="month-tab">2025-08</div>
+                    <div class="month-tab">2025-09</div>
+                </div>
+            </div>
+
+            <!-- 白盒归因瀑布图板块 -->
+            <div class="section-title">白盒归因</div>
+            <div class="attribution-card">
+                <div class="attribution-text" id="r_attrText">
+                    经模型拆解，下月预测总销量较基础基准上调。主要正向驱动因素为<strong>渠道引流</strong>（+5）与<strong>自然趋势增长</strong>（+3），部分抵消于<strong>价格调整</strong>（-2）带来的负向影响。
+                </div>
+                <div class="waterfall-container" id="waterfallChart"></div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // 1. 初始化 ECharts 实例
+        var myChart = echarts.init(document.getElementById('mainChart'));
+        var wfChart = echarts.init(document.getElementById('waterfallChart'));
+
+        // 2. 基础配置与颜色映射
+        const xAxisLineData = ['Jul 2023', 'Oct 2023', 'Jan 2024', 'Apr 2024', 'Jul 2024', 'Oct 2024', 'Jan 2025', 'Apr 2025', 'Jul 2025'];
+        const COLORS = {
+            base: '#d9d9d9',   // 基础灰色
+            up: '#52c41a',     // 绿色 (上涨)
+            info: '#12b5cb',   // 青色 (其他正向)
+            down: '#ff4d4f',   // 红色 (下降)
+            final: '#003a8c'   // 深蓝色 (最终预测)
+        };
+
+        // 3. 完整 Mock 数据结构
+        const mockData = [
+            {
+                name: "旗舰智能手机 12GB+256GB",
+                meta: "分类：稳定 · 模型：MA6 · 非零期：40",
+                type: "稳定型", 
+                desc: "销量规律、波动小，采用 ML 集成模型 (GBR+RF)",
+                avg: "21", cv: "0.95", nonZero: "40期", trend: "-59%",
+                chart: {
+                    history: [3, 21, 20, 54, 2, 55, 3, 6, 23, 50, 38, 52, 3, 1, 47, 4, 2, 28, 22, 36, 1, 15, 2, '-', '-'],
+                    predict: ['-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', 13, 13, 13],
+                    origin:  [2, 0, '-', 60, 92, 60, '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-'],
+                    lastYear:['-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', 1, 47, '-']
+                },
+                attribution: {
+                    text: "经模型拆解，下月预测总销量较基础基准上调。主要正向驱动因素为<strong>渠道引流</strong>（+5）与<strong>自然趋势增长</strong>（+3），部分抵消于<strong>价格调整</strong>（-2）带来的负向影响。",
+                    xAxis: ['基础销量', '渠道引流', '趋势项', '价格因子', '最终预测'],
+                    // 瀑布图占位数据算法：基于前一柱子的高度计算底座
+                    placeholder: [0, 7, 12, 13, 0], 
+                    values: [7, 5, 3, 2, 13],
+                    labels: ['7', '+5', '+3', '-2', '13'],
+                    colors: [COLORS.base, COLORS.up, COLORS.info, COLORS.down, COLORS.final]
+                }
+            },
+            {
+                name: "入门级智能手表 青春版",
+                meta: "分类：趋势 · 模型：Prophet · 非零期：12",
+                type: "上升趋势型", 
+                desc: "近期呈现明显增长，采用 Prophet 时间序列模型",
+                avg: "85", cv: "0.45", nonZero: "12期", trend: "+120%",
+                chart: {
+                    history: [10, 15, 12, 18, 25, 30, 45, 50, 48, 55, 60, 72, 80, 85, 90, 95, 105, 110, 120, 135, 140, 150, '-', '-'],
+                    predict: ['-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', 160, 175, 190],
+                    origin:  ['-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-'],
+                    lastYear:['-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', 10, 15, 12, 18, 25, 30, 45, 50, 48, 55, 60, 72, 80]
+                },
+                attribution: {
+                    text: "该SKU处于高速成长期，基础销量为100。本期受到<strong>平台大促</strong>（+60）与<strong>新品溢出效应</strong>（+40）的显著带动，扣除<strong>竞品降价</strong>（-10）影响后，最终预测190件。",
+                    xAxis: ['基础销量', '促销活动', '趋势项', '竞品影响', '最终预测'],
+                    placeholder: [0, 100, 160, 190, 0],
+                    values: [100, 60, 40, 10, 190],
+                    labels: ['100', '+60', '+40', '-10', '190'],
+                    colors: [COLORS.base, COLORS.up, COLORS.info, COLORS.down, COLORS.final]
+                }
+            },
+            {
+                name: "旧款平板电脑 64GB",
+                meta: "分类：衰退 · 模型：Croston · 非零期：56",
+                type: "衰退间歇型", 
+                desc: "生命周期末期，需求稀疏，采用 Croston 间歇需求模型",
+                avg: "5", cv: "1.85", nonZero: "56期", trend: "-85%",
+                chart: {
+                    history: [80, 75, 70, 60, 55, 40, 35, 20, 15, 12, 8, 5, 2, 0, 1, 0, 0, 2, 0, 0, 0, 1, '-', '-'],
+                    predict: ['-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', 0, 0, 0],
+                    origin:  ['-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-', '-'],
+                    lastYear:['-', '-', '-', '-', '-', '-', '-', '-', '-', '-', 80, 75, 70, 60, 55, 40, 35, 20, 15, 12, 8, 5, 2, 0]
+                },
+                attribution: {
+                    text: "该SKU处于生命周期末期，预测基准降至0。由于本月无任何促销与渠道活动，所有因子影响均归零，最终维持0销量预测。",
+                    xAxis: ['基础销量', '活动影响', '季节性', '最终预测'],
+                    placeholder: [0, 0, 0, 0],
+                    values: [0, 0, 0, 0],
+                    labels: ['0', '0', '0', '0'],
+                    colors: [COLORS.base, COLORS.base, COLORS.base, COLORS.final]
+                }
+            }
+        ];
+
+        // 4. 渲染预测折线图
+        function renderLineChart(dataObj) {
+            const option = {
+                tooltip: { trigger: 'axis' },
+                legend: {
+                    data: ['历史（清洗后）', '预测', '清洗前原始', '去年同期'],
+                    top: 0,
+                    icon: 'roundRect',
+                    itemWidth: 16,
+                    itemHeight: 2,
+                    textStyle: { fontSize: 13, color: '#666' }
+                },
+                grid: { left: '2%', right: '4%', bottom: '5%', top: '40px', containLabel: true },
+                xAxis: {
+                    type: 'category',
+                    boundaryGap: false,
+                    data: xAxisLineData,
+                    axisLine: { lineStyle: { color: '#ccc' } },
+                    axisLabel: { color: '#666', margin: 12 }
+                },
+                yAxis: {
+                    type: 'value',
+                    splitLine: { lineStyle: { color: '#eee' } }, 
+                    axisLabel: { color: '#666' }
+                },
+                series: [
+                    {
+                        name: '历史（清洗后）',
+                        type: 'line',
+                        data: dataObj.history,
+                        itemStyle: { color: '#1890ff' },
+                        symbol: 'circle',
+                        symbolSize: 6
+                    },
+                    {
+                        name: '预测',
+                        type: 'line',
+                        data: dataObj.predict,
+                        itemStyle: { color: '#52c41a' },
+                        lineStyle: { type: 'dashed', width: 2 },
+                        symbol: 'emptyCircle',
+                        symbolSize: 6,
+                        markLine: {
+                            symbol: ['none', 'none'],
+                            label: { show: false },
+                            lineStyle: { type: 'dotted', color: '#999', width: 1 },
+                            data: [{ xAxis: 'Jan 2025' }]
+                        }
+                    },
+                    {
+                        name: '清洗前原始',
+                        type: 'line',
+                        data: dataObj.origin,
+                        itemStyle: { color: '#fa8c16' },
+                        lineStyle: { type: 'dashed' },
+                        symbol: 'triangle',
+                        symbolSize: 6
+                    },
+                    {
+                        name: '去年同期',
+                        type: 'line',
+                        data: dataObj.lastYear,
+                        itemStyle: { color: '#bfbfbf' },
+                        lineStyle: { type: 'dashed' },
+                        symbol: 'diamond',
+                        symbolSize: 6
+                    }
+                ]
+            };
+            myChart.setOption(option);
+        }
+
+        // 5. 渲染归因瀑布图
+        function renderWaterfallChart(attrData) {
+            const option = {
+                title: {
+                    text: '下月销量预测构成拆解',
+                    left: 'center',
+                    textStyle: { fontSize: 16, fontWeight: 'bold', color: '#333' }
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: { type: 'shadow' },
+                    formatter: function (params) {
+                        let bar = params[1]; 
+                        return bar.name + '<br/>' + bar.marker + ' 影响值 : ' + attrData.labels[bar.dataIndex];
+                    }
+                },
+                grid: { left: '5%', right: '5%', bottom: '5%', top: '40px', containLabel: true },
+                xAxis: {
+                    type: 'category',
+                    data: attrData.xAxis,
+                    axisTick: { show: false },
+                    axisLine: { lineStyle: { color: '#d9d9d9' } },
+                    axisLabel: { color: '#666', fontWeight: 400, margin: 16 }
+                },
+                yAxis: { show: false }, // 隐藏 Y 轴，还原 UI 设计
+                series: [
+                    {
+                        name: 'Placeholder',
+                        type: 'bar',
+                        stack: 'Total',
+                        itemStyle: { borderColor: 'transparent', color: 'transparent' },
+                        emphasis: { itemStyle: { borderColor: 'transparent', color: 'transparent' } },
+                        data: attrData.placeholder
+                    },
+                    {
+                        name: 'Value',
+                        type: 'bar',
+                        stack: 'Total',
+                        barMaxWidth: 80, // 控制柱子最大宽度
+                        label: {
+                            show: true,
+                            position: 'top',
+                            formatter: function(params) { return attrData.labels[params.dataIndex]; },
+                            fontWeight: 'bold',
+                            fontSize: 16,
+                            color: function(params) { return attrData.colors[params.dataIndex]; }
+                        },
+                        data: attrData.values.map((val, idx) => {
+                            return {
+                                value: val,
+                                itemStyle: { color: attrData.colors[idx], borderRadius: [2, 2, 0, 0] }
+                            }
+                        })
+                    }
+                ]
+            };
+            wfChart.setOption(option);
+        }
+
+        // 6. 切换 SKU 数据联动逻辑
+        function switchSKU(index) {
+            // 左侧表格高亮切换
+            const items = document.querySelectorAll('.sku-table tbody tr');
+            items.forEach((el, i) => {
+                if(i === index) el.classList.add('active');
+                else el.classList.remove('active');
+            });
+
+            const targetData = mockData[index];
+
+            // 更新右上角文字指标
+            document.getElementById('r_skuName').innerText = targetData.name;
+            document.getElementById('r_skuMeta').innerText = targetData.meta;
+            document.getElementById('r_modelType').innerText = targetData.type;
+            document.getElementById('r_modelDesc').innerText = targetData.desc;
+            document.getElementById('r_avg').innerText = targetData.avg;
+            document.getElementById('r_cv').innerText = targetData.cv;
+            document.getElementById('r_nonZero').innerText = targetData.nonZero;
+            
+            // 趋势文字与标签颜色切换
+            const trendEl = document.getElementById('r_trend');
+            const trendBadge = document.getElementById('r_trendBadge');
+            trendEl.innerText = targetData.trend;
+            
+            trendEl.classList.remove('trend-down', 'trend-up');
+            if(targetData.trend.includes('+')) {
+                trendEl.classList.add('trend-up');
+                trendBadge.innerText = "近期上升";
+            } else {
+                trendEl.classList.add('trend-down');
+                trendBadge.innerText = "近期下滑";
+            }
+
+            // 更新瀑布图文字归因
+            document.getElementById('r_attrText').innerHTML = targetData.attribution.text;
+
+            // 分别渲染两个图表
+            renderLineChart(targetData.chart);
+            renderWaterfallChart(targetData.attribution);
+        }
+
+        // 页面初始化
+        window.onload = function() {
+            switchSKU(0); // 默认选中第一条数据
+        };
+
+        // 窗口缩放自适应
+        window.addEventListener('resize', function() {
+            myChart.resize();
+            wfChart.resize();
+        });
+
+        // 快捷筛选项点击交互
+        document.querySelectorAll('.filter-tag').forEach(tag => {
+            tag.addEventListener('click', function() {
+                document.querySelectorAll('.filter-tag').forEach(t => t.classList.remove('active'));
+                this.classList.add('active');
+            });
+        });
+    </script>
+</body>
+</html>

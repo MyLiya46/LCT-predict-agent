@@ -1,0 +1,8 @@
+{
+  "kind": "sandbox",
+  "image": "registry/agent-tools/query-sales-data:v1",
+  "handler": "query_sales_data",
+  "timeout_s": 30,
+  "warm_pool": 1,
+  "env_from_datasource": ["sales-data"]
+}

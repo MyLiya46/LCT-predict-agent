@@ -1,0 +1,8 @@
+{
+  "kind": "sandbox",
+  "image": "registry/agent-tools/predict-sales:v1",
+  "handler": "predict_sales",
+  "timeout_s": 30,
+  "warm_pool": 1,
+  "env_from_datasource": ["sales-data"]
+}

@@ -1,0 +1,21 @@
+{
+  "name": "predict_sales",
+  "description": "发起销售预测（基于历史数据，支持指定预测模型与预测期数）",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "model": {"type": "string", "description": "预测模型标识，默认 default"},
+      "horizon": {"type": "integer", "minimum": 1, "description": "预测期数（月）"},
+      "base": {"type": "object", "description": "预测基础：{region, period} 或历史查询结果引用"}
+    },
+    "required": ["horizon"],
+    "additionalProperties": false
+  },
+  "output_schema": {
+    "type": "object",
+    "properties": {
+      "forecast": {"type": "array", "items": {"type": "object", "properties": {"period": {"type": "string"}, "value": {"type": "number"}}}},
+      "meta": {"type": "object"}
+    }
+  }
+}

@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SupplyPlan Pro - AI智能经营沙盘</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #f1f1f1; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        .agent-glow { animation: glow 2s infinite alternate; }
+        @keyframes glow { from { box-shadow: 0 0 5px #8b5cf6, 0 0 10px #8b5cf6; } to { box-shadow: 0 0 20px #a78bfa, 0 0 30px #a78bfa; } }
+    </style>
+</head>
+<body class="bg-gray-100 text-gray-800 font-sans h-screen flex flex-col overflow-hidden">
+
+    <!-- 1. 顶部导航 -->
+    <header class="bg-slate-900 text-white h-12 flex items-center justify-between px-6 shadow-md shrink-0">
+        <div class="flex items-center gap-3">
+            <i class="fa-solid fa-layer-group text-blue-400"></i>
+            <span class="font-bold text-md tracking-wide">SupplyPlan Pro | AI智能经营沙盘</span>
+        </div>
+        <div class="flex items-center gap-4 text-sm">
+            <span class="text-gray-400">当前周期: 2024 Q3 - Q4</span>
+            <div class="w-7 h-7 rounded-full bg-blue-600 flex items-center justify-center font-bold">PM</div>
+        </div>
+    </header>
+
+    <!-- 2. 全局控制层：导入预测与目标设定 -->
+    <section class="bg-white border-b px-6 py-3 flex items-center justify-between shrink-0 shadow-sm z-10">
+        <div class="flex items-center gap-4">
+            <button class="bg-gray-100 hover:bg-gray-200 border border-gray-300 text-gray-700 px-4 py-1.5 rounded text-sm font-medium transition flex items-center gap-2">
+                <i class="fa-solid fa-file-import text-blue-600"></i> 1. 导入基础预测 (Baseline)
+            </button>
+            <i class="fa-solid fa-arrow-right text-gray-300"></i>
+            <div class="flex items-center gap-2 bg-blue-50 px-3 py-1.5 rounded border border-blue-100">
+                <span class="text-sm font-bold text-blue-800">2. 设定经营目标:</span>
+                <span class="text-xs text-gray-600">销量 ≥</span>
+                <input type="text" value="120" class="w-12 text-sm border-b border-blue-300 bg-transparent outline-none text-center font-bold text-blue-700">
+                <span class="text-xs text-gray-600">万件 | 销售额 ≥</span>
+                <input type="text" value="380" class="w-16 text-sm border-b border-blue-300 bg-transparent outline-none text-center font-bold text-blue-700">
+                <span class="text-xs text-gray-600">百万元</span>
+            </div>
+        </div>
+        
+        <div class="flex items-center gap-3">
+            <span class="text-xs text-gray-400 mr-2">选择工作流引擎：</span>
+            <button onclick="runAgent()" id="btn-agent" class="bg-purple-600 hover:bg-purple-700 text-white px-5 py-2 rounded shadow-md text-sm font-bold transition flex items-center gap-2">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> AI Agent 智能推荐
+            </button>
+            <button onclick="runSimulation()" id="btn-sim" class="bg-blue-600 hover:bg-blue-700 text-white px-5 py-2 rounded shadow-md text-sm font-bold transition flex items-center gap-2">
+                <i class="fa-solid fa-play"></i> 运行沙盘预估
+            </button>
+        </div>
+    </section>
+
+    <main class="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
+        <!-- 3. KPI 看板区 -->
+        <section class="grid grid-cols-4 gap-4 shrink-0">
+            <div class="bg-white rounded-lg shadow p-3 border-l-4 border-gray-300" id="card-vol">
+                <div class="text-xs text-gray-500 font-semibold mb-1">预计总销量 (万件)</div>
+                <div class="flex items-end justify-between">
+                    <div class="text-2xl font-bold text-gray-800" id="kpi-vol">110.0</div>
+                    <div class="text-sm text-gray-400 font-medium" id="diff-vol">- (基线)</div>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-3 border-l-4 border-gray-300" id="card-rev">
+                <div class="text-xs text-gray-500 font-semibold mb-1">预计销售额 (百万元)</div>
+                <div class="flex items-end justify-between">
+                    <div class="text-2xl font-bold text-gray-800" id="kpi-rev">350.5</div>
+                    <div class="text-sm text-gray-400 font-medium" id="diff-rev">- (基线)</div>
+                </div>
+            </div>
+            <div class="bg-white rounded-lg shadow p-3 border-l-4 border-gray-300">
+                <div class="text-xs text-gray-500 font-semibold mb-1">综合毛利率</div>
+                <div class="flex items-end justify-between">
+                    <div class="text-2xl font-bold text-gray-800" id="kpi-margin">25.5%</div>
+                    <div class="text-sm text-gray-400 font-medium">- (基线)</div>
+                </div>
+            </div>
+            <!-- 目标达成状态条 (移动至顶部KPI区) -->
+            <div class="bg-white rounded-lg shadow p-3 border-l-4 border-blue-500 flex flex-col justify-center">
+                <div class="flex justify-between text-xs font-bold text-gray-600 mb-2">
+                    <span>业绩目标达成率</span>
+                    <span id="progress-text" class="text-blue-600">92.2% (未达标)</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2.5">
+                    <div id="progress-bar" class="bg-blue-600 h-2.5 rounded-full transition-all duration-1000" style="width: 92.2%"></div>
+                </div>
+            </div>
+        </section>
+
+        <!-- 4. 工作区 -->
+        <section class="flex-1 flex gap-4 overflow-hidden">
+            <!-- 左侧：策略矩阵 (放大占比为 2/3) -->
+            <div class="w-2/3 bg-white rounded-lg shadow flex flex-col overflow-hidden">
+                <div class="p-3 border-b bg-gray-50 flex justify-between items-center shrink-0">
+                    <h2 class="font-bold text-gray-700 text-sm"><i class="fa-solid fa-sliders mr-2"></i>商品经营策略矩阵 & 单品模拟明细</h2>
+                </div>
+                
+                <div class="flex-1 overflow-auto">
+                    <table class="w-full text-sm text-left whitespace-nowrap">
+                        <thead class="text-xs text-gray-500 bg-gray-100 sticky top-0 shadow-sm z-10">
+                            <tr>
+                                <th class="p-3">商品 / SKU</th>
+                                <th class="p-3 border-l border-gray-200 w-48">策略配置 (AI & 手工)</th>
+                                <th class="p-3 border-l border-gray-200 text-right w-24">单价 (¥)</th>
+                                <th class="p-3 text-right w-24">销量 (万件)</th>
+                                <th class="p-3 text-right w-28">销售额 (百万元)</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-100">
+                            <!-- 商品1 -->
+                            <tr class="hover:bg-gray-50 transition">
+                                <td class="p-3">
+                                    <div class="font-medium text-gray-800">旗舰主机 X-Pro</div>
+                                    <div class="text-[10px] text-green-600 bg-green-100 px-1 py-0.5 rounded inline-block mt-1">成熟期</div>
+                                </td>
+                                <td class="p-3 border-l border-gray-100 bg-blue-50/20">
+                                    <div class="text-[10px] text-purple-600 mb-1 font-medium truncate" id="ai-rec-1"><i class="fa-solid fa-robot"></i> 待分析...</div>
+                                    <select class="border border-gray-300 rounded p-1 w-full text-xs outline-none focus:border-blue-500">
+                                        <option>维持现状</option>
+                                        <option id="opt-1">降价促销</option>
+                                    </select>
+                                </td>
+                                <td class="p-3 border-l border-gray-100 text-right">
+                                    <div class="text-xs text-gray-400">4,999</div>
+                                    <div class="font-bold text-blue-600 text-xs mt-1" id="sim-price-1">--</div>
+                                </td>
+                                <td class="p-3 text-right">
+                                    <div class="text-xs text-gray-400">45.0</div>
+                                    <div class="font-bold text-green-500 text-xs mt-1" id="sim-vol-1">--</div>
+                                </td>
+                                <td class="p-3 text-right bg-gray-50/50">
+                                    <div class="text-xs text-gray-400">224.9</div>
+                                    <div class="font-bold text-blue-600 text-sm mt-1" id="sim-rev-1">--</div>
+                                </td>
+                            </tr>
+                            <!-- 商品2 -->
+                            <tr class="hover:bg-gray-50 transition">
+                                <td class="p-3">
+                                    <div class="font-medium text-gray-800">标准版 X-Base</div>
+                                    <div class="text-[10px] text-yellow-600 bg-yellow-100 px-1 py-0.5 rounded inline-block mt-1">衰退期 / 积压</div>
+                                </td>
+                                <td class="p-3 border-l border-gray-100 bg-blue-50/20">
+                                    <div class="text-[10px] text-purple-600 mb-1 font-medium truncate" id="ai-rec-2"><i class="fa-solid fa-robot"></i> 待分析...</div>
+                                    <select class="border border-gray-300 rounded p-1 w-full text-xs outline-none focus:border-blue-500">
+                                        <option>维持现状</option>
+                                        <option>清仓退市 (EOL)</option>
+                                    </select>
+                                </td>
+                                <td class="p-3 border-l border-gray-100 text-right">
+                                    <div class="text-xs text-gray-400">2,999</div>
+                                    <div class="font-bold text-blue-600 text-xs mt-1" id="sim-price-2">--</div>
+                                </td>
+                                <td class="p-3 text-right">
+                                    <div class="text-xs text-gray-400">30.0</div>
+                                    <div class="font-bold text-green-500 text-xs mt-1" id="sim-vol-2">--</div>
+                                </td>
+                                <td class="p-3 text-right bg-gray-50/50">
+                                    <div class="text-xs text-gray-400">89.9</div>
+                                    <div class="font-bold text-blue-600 text-sm mt-1" id="sim-rev-2">--</div>
+                                </td>
+                            </tr>
+                            <!-- 商品3 -->
+                            <tr class="hover:bg-gray-50 transition">
+                                <td class="p-3">
+                                    <div class="font-medium text-gray-800">新品路由 R-Max</div>
+                                    <div class="text-[10px] text-blue-600 bg-blue-100 px-1 py-0.5 rounded inline-block mt-1">引入期 (NPI)</div>
+                                </td>
+                                <td class="p-3 border-l border-gray-100 bg-blue-50/20">
+                                    <div class="text-[10px] text-purple-600 mb-1 font-medium truncate" id="ai-rec-3"><i class="fa-solid fa-robot"></i> 待分析...</div>
+                                    <select class="border border-gray-300 rounded p-1 w-full text-xs outline-none focus:border-blue-500">
+                                        <option>计划上市</option>
+                                        <option>提前铺货+首发买赠</option>
+                                    </select>
+                                </td>
+                                <td class="p-3 border-l border-gray-100 text-right">
+                                    <div class="text-xs text-gray-400">1,599</div>
+                                    <div class="font-bold text-blue-600 text-xs mt-1" id="sim-price-3">--</div>
+                                </td>
+                                <td class="p-3 text-right">
+                                    <div class="text-xs text-gray-400">10.0</div>
+                                    <div class="font-bold text-green-500 text-xs mt-1" id="sim-vol-3">--</div>
+                                </td>
+                                <td class="p-3 text-right bg-gray-50/50">
+                                    <div class="text-xs text-gray-400">15.9</div>
+                                    <div class="font-bold text-blue-600 text-sm mt-1" id="sim-rev-3">--</div>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+
+                <!-- 知识库Agent思考过程 -->
+                <div class="h-24 bg-gray-900 text-gray-300 p-3 shrink-0 text-[11px] overflow-auto font-mono rounded-b-lg">
+                    <div class="text-purple-400 font-bold mb-1"><i class="fa-solid fa-terminal"></i> Agent 推导日志...</div>
+                    <div id="agent-log" class="space-y-1">
+                        <div>> 系统待命。等待导入预测或设定目标...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 右侧：图表区 (缩小占比为 1/3) -->
+            <div class="w-1/3 bg-white rounded-lg shadow flex flex-col p-4">
+                <div class="font-bold text-gray-700 mb-2 shrink-0 text-sm"><i class="fa-solid fa-chart-line mr-2"></i>整体业绩预估趋势图</div>
+                <div class="flex-1 relative min-h-0">
+                    <canvas id="trendChart"></canvas>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script>
+        const ctx = document.getElementById('trendChart').getContext('2d');
+        let trendChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: ['7月', '8月', '9月', '10月', '11月', '12月'],
+                datasets: [
+                    {
+                        label: '基线',
+                        data: [50, 52, 55, 60, 65, 68],
+                        borderColor: '#9ca3af',
+                        borderDash: [5, 5],
+                        fill: false,
+                        tension: 0.3
+                    },
+                    {
+                        label: '模拟结果',
+                        data: [50, 52, 55, 60, 65, 68],
+                        borderColor: '#2563eb',
+                        backgroundColor: 'rgba(37, 99, 235, 0.1)',
+                        fill: true,
+                        tension: 0.3
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'top', labels: { boxWidth: 10, font: { size: 10 } } } }
+            }
+        });
+
+        // 更新单品模拟数据函数
+        function updateItemSimulation(type) {
+            if (type === 'ai') {
+                // X-Pro: 降价8%，销量涨15%
+                document.getElementById('sim-price-1').innerHTML = '<i class="fa-solid fa-arrow-down text-red-500 mr-1"></i>4,599';
+                document.getElementById('sim-vol-1').innerHTML = '<i class="fa-solid fa-arrow-up mr-1"></i>51.7';
+                document.getElementById('sim-rev-1').innerHTML = '<i class="fa-solid fa-arrow-up mr-1"></i>237.7';
+                
+                // X-Base: 清仓降价，销量暴涨
+                document.getElementById('sim-price-2').innerHTML = '<i class="fa-solid fa-arrow-down text-red-500 mr-1"></i>1,999';
+                document.getElementById('sim-vol-2').innerHTML = '<i class="fa-solid fa-arrow-up mr-1"></i>45.0';
+                document.getElementById('sim-rev-2').innerHTML = '<i class="fa-solid fa-arrow-up mr-1"></i>89.9'; // 清仓不赚钱保本
+                
+                // R-Max: 提前上市首发
+                document.getElementById('sim-price-3').innerHTML = '1,599';
+                document.getElementById('sim-vol-3').innerHTML = '<i class="fa-solid fa-arrow-up mr-1"></i>25.8';
+                document.getElementById('sim-rev-3').innerHTML = '<i class="fa-solid fa-arrow-up mr-1"></i>41.2';
+            } else {
+                // 手工微调模拟结果变化
+                document.getElementById('sim-price-1').innerHTML = '<i class="fa-solid fa-arrow-down text-red-500 mr-1"></i>4,799';
+                document.getElementById('sim-vol-1').innerHTML = '<i class="fa-solid fa-arrow-up mr-1"></i>48.0';
+                document.getElementById('sim-rev-1').innerHTML = '<i class="fa-solid fa-arrow-up mr-1"></i>230.3';
+            }
+        }
+
+        function runAgent() {
+            const btn = document.getElementById('btn-agent');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> AI 测算中...';
+            btn.classList.add('agent-glow');
+            
+            const log = document.getElementById('agent-log');
+            log.innerHTML = '<div>> 缺口计算: 销售额差 29.5M。正在计算单品价格需求弹性...</div>';
+            
+            setTimeout(() => {
+                document.getElementById('ai-rec-1').innerHTML = '<i class="fa-solid fa-robot"></i> 建议降价8%';
+                document.getElementById('ai-rec-2').innerHTML = '<i class="fa-solid fa-robot"></i> 建议降至1999清仓';
+                document.getElementById('ai-rec-3').innerHTML = '<i class="fa-solid fa-robot"></i> 提前上市';
+                
+                const selects = document.querySelectorAll('select');
+                selects[0].selectedIndex = 1;
+                selects[1].selectedIndex = 1;
+                selects[2].selectedIndex = 1;
+
+                log.innerHTML += '<div class="text-blue-300">> 策略生成完毕。单品明细及整体KPI已更新，达成率达 100.6%。</div>';
+                
+                // 更新全局KPI
+                updateDashboard('122.5', '382.4', '100.6%', '23.1%', true);
+                // 更新单品表格数据
+                updateItemSimulation('ai');
+
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> 推荐完成';
+                btn.classList.remove('agent-glow');
+                setTimeout(() => { btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i> AI Agent 智能推荐'; }, 2000);
+            }, 1500);
+        }
+
+        function runSimulation() {
+            const btn = document.getElementById('btn-sim');
+            btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> 计算中...';
+            
+            setTimeout(() => {
+                updateDashboard('118.0', '375.0', '98.6%', '24.5%', false);
+                updateItemSimulation('manual');
+                
+                const log = document.getElementById('agent-log');
+                log.innerHTML += '<div class="text-yellow-400">> [手工模拟] 根据您的调整重新测算完成。</div>';
+
+                btn.innerHTML = '<i class="fa-solid fa-check"></i> 模拟完成';
+                setTimeout(() => { btn.innerHTML = '<i class="fa-solid fa-play"></i> 运行沙盘预估'; }, 2000);
+            }, 1000);
+        }
+
+        function updateDashboard(vol, rev, pct, margin, isSuccess) {
+            document.getElementById('kpi-vol').innerText = vol;
+            document.getElementById('diff-vol').innerHTML = isSuccess ? '<span class="text-green-500">+12.5 (达标)</span>' : '<span class="text-yellow-500">+8.0 (未达标)</span>';
+            document.getElementById('kpi-rev').innerText = rev;
+            document.getElementById('diff-rev').innerHTML = isSuccess ? '<span class="text-green-500">+31.9 (达标)</span>' : '<span class="text-yellow-500">+24.5 (未达标)</span>';
+            document.getElementById('kpi-margin').innerText = margin;
+
+            const borderColor = isSuccess ? 'border-green-500' : 'border-blue-500';
+            document.getElementById('card-vol').className = `bg-white rounded-lg shadow p-3 border-l-4 ${borderColor} transition-colors`;
+            document.getElementById('card-rev').className = `bg-white rounded-lg shadow p-3 border-l-4 ${borderColor} transition-colors`;
+
+            trendChart.data.datasets[1].data = isSuccess ? [50, 56, 62, 68, 72, 78] : [50, 54, 58, 64, 69, 72];
+            trendChart.update();
+
+            const pBar = document.getElementById('progress-bar');
+            const pText = document.getElementById('progress-text');
+            pBar.style.width = parseFloat(pct) > 100 ? '100%' : pct;
+            
+            if(parseFloat(pct) >= 100) {
+                pBar.classList.replace('bg-blue-600', 'bg-green-500');
+                pText.innerText = `${pct} (已达标 🎉)`;
+                pText.className = 'text-green-600 font-bold';
+            } else {
+                pBar.classList.replace('bg-green-500', 'bg-blue-600');
+                pText.innerText = `${pct} (未达标)`;
+                pText.className = 'text-blue-600 font-bold';
+            }
+        }
+    </script>
+</body>
+</html>
