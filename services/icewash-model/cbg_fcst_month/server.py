@@ -3,15 +3,17 @@ import argparse
 import asyncio
 import contextvars
 import json
+import os
 import sqlite3
 import threading
+import tempfile
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import BackgroundTasks, FastAPI, File, HTTPException, UploadFile
 from pydantic import BaseModel, Field
 import httpx
 
@@ -20,6 +22,14 @@ from main import main
 from config import Config
 from request_log import RequestLogSession, make_request_log_path
 import whatif as whatif_engine
+from reference_data import (
+    REFERENCE_DIR,
+    ReferenceDataError,
+    _source_for,
+    knowledge_markdown,
+    load_workbench_dataset,
+    parse_cost_upload,
+)
 
 
 cfg = Config()
@@ -494,14 +504,13 @@ async def run_prediction(request: PredictionRequest, background_tasks: Backgroun
 async def get_task_status(task_id: str):
     """查询任务状态（内存未命中 → SQLite 惰性恢复，支持跨重启）。"""
     with task_store_lock:
-        if task_id not in task_store:
-            task = _load_task_from_db(task_id)
-            if task is None:
-                raise HTTPException(status_code=404, detail="任务不存在")
-            task_info = dict(task)
-        else:
-            task_info = dict(task_store[task_id])
-        progress_log = list(task_info.get("progress_log") or [])
+        task_info = dict(task_store[task_id]) if task_id in task_store else None
+    if task_info is None:
+        task = _load_task_from_db(task_id)
+        if task is None:
+            raise HTTPException(status_code=404, detail="任务不存在")
+        task_info = dict(task)
+    progress_log = list(task_info.get("progress_log") or [])
     return TaskStatusResponse(
         task_id=task_id,
         status=task_info["status"],
@@ -521,11 +530,12 @@ async def list_tasks(limit: int = 50, status: Optional[str] = None):
     for task_id, task_info in list(task_store.items())[-limit:]:
         if status and task_info["status"] != status:
             continue
+        request_data = task_info.get("request_data") or {}
         tasks.append({
             "task_id": task_id,
             "status": task_info["status"],
-            "systemForecastNumber": task_info["request_data"]["systemForecastNumber"],
-            "productLine": task_info["request_data"]["productLine"],
+            "systemForecastNumber": request_data.get("systemForecastNumber"),
+            "productLine": request_data.get("productLine"),
             "created_time": task_info["created_time"],
             "completed_time": task_info.get("completed_time"),
             "callback_sent": task_info.get("callback_sent", False)
@@ -598,6 +608,61 @@ async def health_check():
         "callback_base_url": callback_base_url,
         "organization_id": organization_id
     }
+
+
+@app.get("/reference/workbench/{dataset}")
+async def get_workbench_reference(dataset: str):
+    """导出固定参考目录中的工作台数据，供 backend 内网同步。"""
+    try:
+        return load_workbench_dataset(dataset)
+    except ReferenceDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.get("/reference/knowledge/strategy")
+async def get_strategy_knowledge():
+    """导出模型侧策略知识展示内容。"""
+    try:
+        return knowledge_markdown()
+    except ReferenceDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@app.post("/reference/workbench/cost_data")
+async def upload_workbench_cost_reference(file: UploadFile = File(...)):
+    """校验成本文件后原子替换模型侧固定 cost_data.xlsx。"""
+    filename = file.filename or ""
+    try:
+        content = await file.read()
+        columns, rows, frame = parse_cost_upload(content, filename)
+        REFERENCE_DIR.mkdir(parents=True, exist_ok=True)
+        target = REFERENCE_DIR / "cost_data.xlsx"
+        temporary_path: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="wb", suffix=".xlsx", prefix=".cost_data.", dir=REFERENCE_DIR, delete=False
+            ) as temporary:
+                temporary_path = temporary.name
+            frame.to_excel(temporary_path, index=False)
+            os.replace(temporary_path, target)
+            temporary_path = None
+        finally:
+            if temporary_path:
+                try:
+                    os.unlink(temporary_path)
+                except FileNotFoundError:
+                    pass
+        return {
+            "dataset": "cost_data",
+            "row_count": len(rows),
+            "source": _source_for(target),
+            "columns": columns,
+        }
+    except ReferenceDataError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("成本参考文件替换失败")
+        raise HTTPException(status_code=400, detail=f"成本参考文件替换失败: {exc}") from exc
 
 @app.get("/config")
 async def get_config():

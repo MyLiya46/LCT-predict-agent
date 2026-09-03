@@ -13,10 +13,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT/backend"
 
+if command -v uv >/dev/null 2>&1; then
+  UV_BIN="uv"
+elif command -v uv.exe >/dev/null 2>&1; then
+  UV_BIN="uv.exe"
+else
+  echo "[dev-db] 未找到 uv/uv.exe，请先安装 uv" >&2
+  exit 1
+fi
+
 # 1) 迁移前多试几次：上面那条 docker run 的 PG 首次冷启动可能要几秒
 MIGRATE_OK=0
 for i in 1 2 3 4 5; do
-  if uv run alembic upgrade head 2>/dev/null; then
+  if "$UV_BIN" run alembic upgrade head 2>/dev/null; then
     MIGRATE_OK=1
     break
   fi
@@ -30,5 +39,5 @@ if [ "$MIGRATE_OK" -ne 1 ]; then
 fi
 
 # 2) 幂等种子（角色/权限/默认场景/system_config/管理员）= tech_design §4.3
-uv run python -m seed.v1__base_seed
+"$UV_BIN" run python -m seed.v1__base_seed
 echo "[dev-db] postgres dev db ready: migration + seed done"

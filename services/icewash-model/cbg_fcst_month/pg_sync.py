@@ -136,7 +136,7 @@ def history_to_pg_frame(csv_path: str) -> pd.DataFrame:
 
 
 def sync_history_csv(csv_path: str, pg_url: Optional[str] = None) -> int:
-    """历史 CSV 灌 fcst_history（if_exists='replace'【假设】，README 说明可重复跑）。"""
+    """历史 CSV 灌 fcst_history（事务内清空后 append，保留 identity 与索引）。"""
     url = pg_url or _pg_url()
     frame = history_to_pg_frame(csv_path)
     if frame.empty:
@@ -144,13 +144,11 @@ def sync_history_csv(csv_path: str, pg_url: Optional[str] = None) -> int:
         return 0
     try:
         engine = create_engine(url)
-        frame.to_sql("fcst_history", con=engine, if_exists="replace", index=False, chunksize=1000)
-        # replace 后补索引
         with engine.begin() as conn:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS idx_fcst_history_q "
-                              "ON fcst_history (category, sku, channel_l3, period)"))
+            conn.execute(text("DELETE FROM fcst_history"))
+            frame.to_sql("fcst_history", con=conn, if_exists="append", index=False, chunksize=1000)
         engine.dispose()
-        print(f"[pg_sync] fcst_history 灌入 {len(frame)} 行（replace）")
+        print(f"[pg_sync] fcst_history 灌入 {len(frame)} 行（delete + append）")
         return len(frame)
     except Exception as e:  # noqa: BLE001
         print(f"[pg_sync] fcst_history 灌入失败: {e}")

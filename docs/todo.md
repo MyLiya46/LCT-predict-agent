@@ -1,3 +1,4 @@
+<!-- GENERATED FROM docs/todo.json; DO NOT EDIT -->
 # LCT-predict-agent · 缝合重构实施任务清单（docs/todo.md）
 
 > 日期：2026-09-01
@@ -11,21 +12,21 @@
 
 | 序号 | 任务 ID | 标题（英文短名） | blockedBy | 状态 | 验收要点（摘要） | 计划文件 |
 |---|---|---|---|---|---|---|
-| 1 | T01 | 后端壳就位（backend-scaffold） | 无 | **reviewed** | backend-backup/ref 环境键合并；backend/ 只留一个 `.env` 和 `.env.example`；Git Bash 复用 `scripts/dev_db_pg.sh`；5 个快速壳测试（25 项）通过 | [backend-scaffold-2026-09-01.md](plans/T01-backend-scaffold-2026-09-01.md) |
-| 2 | T02 | 前端就位（frontend-scaffold） | 无 | **reviewed** | frontend-ref → frontend/；保留 lockfile 并 `npm ci`；vite proxy `/api`→8000；`npm run build` 基线绿 | [frontend-scaffold-2026-09-01.md](plans/T02-frontend-scaffold-2026-09-01.md) |
-| 3 | T03 | 能力域+聊天域数据模型并入 PG（domain-pg-models） | T01 | **reviewed** | 工作台 3 表 + icewash `fcst_*` 3 表 + forecast/attribution/what-if 4 语义表；聊天域加列、users.oa；Alembic 0003；剔 SQLite | [domain-pg-models-2026-09-01.md](plans/T03-domain-pg-models-2026-09-01.md) |
-| 4 | T04 | 工作台域服务迁入（workbench-service） | T03 | **reviewed** | 模型侧持有并导出 3 个 Excel/知识源；成本/价格弹性同步 PG 缓存；策略知识经模型接口读取；JSONB 查询、权限和工作台路由 | [workbench-service-2026-09-01.md](plans/T04-workbench-service-2026-09-01.md) |
-| 5 | T06 | 预测模型客户端+Excel 适配（forecast-model-client） | T03 | **reviewed** | 直连目标模型 `/predict`+`/tasks/{id}`；PG relay → 语义表为主链；五 Sheet Excel adapter 为离线入口 | [forecast-model-client-2026-09-01.md](plans/T06-forecast-model-client-2026-09-01.md) |
-| 6 | T05 | 归因+whatif 域服务迁入（attribution-whatif-service） | T03、T06 | **reviewed** | PG-only attribution/baseline；代理目标模型策略与 taskid；JSONB 查询、权限和 API 契约 | [attribution-whatif-service-2026-09-01.md](plans/T05-attribution-whatif-service-2026-09-01.md) |
-| 7 | T07 | 认证双通道（auth-dual-channel） | T03 | **reviewed** | OAuth 客户端迁入 + users.oa + `POST /api/auth/login`；backup JWT 与 OAuth token 分离；email 登录零回归 | [auth-dual-channel-2026-09-01.md](plans/T07-auth-dual-channel-2026-09-01.md) |
-| 8 | T08 | LLM 网关适配与分析增强（llm-gateway） | T03 | **reviewed** | backup LLM/engine 不变；薄网关客户端 + Turing 分析增强 + `/api/health/agent`；不迁移 planner/memory | [llm-gateway-2026-09-01.md](plans/T08-llm-gateway-2026-09-01.md) |
-| 9 | T09 | backup 原生聊天上下文与能力工具（chat-context-capability-tools） | T04、T05、T06、T08 | **reviewed** | backup engine + Conversation/Message；七项内部工具覆盖五 capability；无 intent/planner/向量记忆 | [chat-context-capability-tools-2026-09-01.md](plans/T09-chat-context-capability-tools-2026-09-01.md) |
-| 10 | T10 | 聊天 envelope 编排+SSE+落库（chat-envelope-service） | T09、T07 | **reviewed** | `/api/sessions`+`/api/chat`+`/api/chat/stream`（status/result/done + envelope）；结果落 messages.result_envelope | [chat-envelope-service-2026-09-01.md](plans/T10-chat-envelope-service-2026-09-01.md) |
-| 11 | T11 | 管理端 API 对齐验证（admin-api-align） | T03 | **reviewed** | 复用 backup `/api/v1/admin` 七模块；seed admin+10 权限点；越权留痕核验 | [admin-api-align-2026-09-01.md](plans/T11-admin-api-align-2026-09-01.md) |
-| 12 | T12 | 前端双登录改造（login-dual-entry） | T02、T07 | **reviewed** | LoginPage OA+email 双入口；AuthStore 双 token；api.ts 加 email 登录 | [login-dual-entry-2026-09-01.md](plans/T12-login-dual-entry-2026-09-01.md) |
-| 13 | T13 | 管理端六页 React 新建（admin-pages-react） | T02、T11、T12 | **reviewed** | AdminLayout+Users/Tools/Datasources/LLM/Audits/Config 六页；api.ts admin 封装；路由守卫 | [admin-pages-react-2026-09-01.md](plans/T13-admin-pages-react-2026-09-01.md) |
-| 14 | T14 | icewash 栈联调自检（icewash-stack-check） | T03 | **reviewed** | 启动 icewash server → /health /predict /tasks/{id} /whatif/strategies /simulate /optimize；pg_sync 写 PG 三表 | [icewash-stack-check-2026-09-01.md](plans/T14-icewash-stack-check-2026-09-01.md) |
-| 15 | T15 | 端到端验收（e2e-acceptance） | T04、T05、T06、T10、T11、T12、T13、T14 | **reviewed** | 双登录→聊天(真实 LLM+真实 icewash 预测)→结果落 PG+工作台真实数据→管理端可用；T01 25 项快速壳测试通过，全量 pytest 仅收集不自动执行 | [e2e-acceptance-2026-09-01.md](plans/T15-e2e-acceptance-2026-09-01.md) |
+| 1 | T01 | 后端壳就位（backend-scaffold） | 无 | completed | - | [plan](plans/T01-backend-scaffold-2026-09-01.md) |
+| 2 | T02 | 前端就位（frontend-scaffold） | 无 | completed | - | [plan](plans/T02-frontend-scaffold-2026-09-01.md) |
+| 3 | T03 | 能力域+聊天域数据模型并入 PG（domain-pg-models） | T01 | completed | - | [plan](plans/T03-domain-pg-models-2026-09-01.md) |
+| 4 | T04 | 工作台域服务迁入（workbench-service） | T03 | completed | - | [plan](plans/T04-workbench-service-2026-09-01.md) |
+| 5 | T06 | 预测模型客户端+Excel 适配（forecast-model-client） | T03 | completed | - | [plan](plans/T06-forecast-model-client-2026-09-01.md) |
+| 6 | T05 | 归因+whatif 域服务迁入（attribution-whatif-service） | T03、T06 | completed | - | [plan](plans/T05-attribution-whatif-service-2026-09-01.md) |
+| 7 | T07 | 认证双通道（auth-dual-channel） | T03 | completed | - | [plan](plans/T07-auth-dual-channel-2026-09-01.md) |
+| 8 | T08 | LLM 网关适配与分析增强（llm-gateway） | T03 | completed | - | [plan](plans/T08-llm-gateway-2026-09-01.md) |
+| 9 | T09 | backup 原生聊天上下文与能力工具（chat-context-capability-tools） | T04、T05、T06、T08 | completed | - | [plan](plans/T09-chat-context-capability-tools-2026-09-01.md) |
+| 10 | T10 | 聊天 envelope 编排+SSE+落库（chat-envelope-service） | T09、T07 | completed | - | [plan](plans/T10-chat-envelope-service-2026-09-01.md) |
+| 11 | T11 | 管理端 API 对齐验证（admin-api-align） | T03 | completed | - | [plan](plans/T11-admin-api-align-2026-09-01.md) |
+| 12 | T12 | 前端双登录改造（login-dual-entry） | T02、T07 | completed | - | [plan](plans/T12-login-dual-entry-2026-09-01.md) |
+| 13 | T13 | 管理端六页 React 新建（admin-pages-react） | T02、T11、T12 | completed | - | [plan](plans/T13-admin-pages-react-2026-09-01.md) |
+| 14 | T14 | icewash 栈联调自检（icewash-stack-check） | T03 | completed | - | [plan](plans/T14-icewash-stack-check-2026-09-01.md) |
+| 15 | T15 | 端到端验收（e2e-acceptance） | T04、T05、T06、T10、T11、T12、T13、T14 | completed | - | [plan](plans/T15-e2e-acceptance-2026-09-01.md) |
 
 ---
 
@@ -48,6 +49,6 @@
 
 - [x] docs/plans/ 下生成任务计划文件，文件名符合 `T{n}-description-of-the-plan-YYYY-MM-DD.md`，互不重名
 - [x] 任一计划文件可独立开工（含 blockedBy/步骤/涉及文件/可运行验收项）
-- [x] todo.md 按拓扑顺序列出全部任务（上表排序），字段完整，状态均 reviewed
+- [x] todo.md 由 docs/todo.json 导出；任务状态、依赖和计划路径以 JSON 为准
 - [x] 每任务验收标准至少含 1 条可运行验证项
 - [x] 本次计划已逐条评审通过，未决策略来源和 What-if 请求字段已收口

@@ -1,0 +1,1 @@
+"""中间件链（tech_design §5.4：request_id → auth → rbac → idempotency → CORS）。"""

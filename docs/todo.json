@@ -1,0 +1,167 @@
+{
+  "schema_version": 1,
+  "revision": 36,
+  "updated_at": "2026-09-02T10:41:02Z",
+  "tasks": [
+    {
+      "id": "T01",
+      "title": "\u540e\u7aef\u58f3\u5c31\u4f4d\uff08backend-scaffold\uff09",
+      "blockedBy": [],
+      "plan": "plans/T01-backend-scaffold-2026-09-01.md",
+      "status": "completed"
+    },
+    {
+      "id": "T02",
+      "title": "\u524d\u7aef\u5c31\u4f4d\uff08frontend-scaffold\uff09",
+      "blockedBy": [],
+      "plan": "plans/T02-frontend-scaffold-2026-09-01.md",
+      "status": "completed"
+    },
+    {
+      "id": "T03",
+      "title": "\u80fd\u529b\u57df+\u804a\u5929\u57df\u6570\u636e\u6a21\u578b\u5e76\u5165 PG\uff08domain-pg-models\uff09",
+      "blockedBy": [
+        "T01"
+      ],
+      "plan": "plans/T03-domain-pg-models-2026-09-01.md",
+      "status": "completed"
+    },
+    {
+      "id": "T04",
+      "title": "\u5de5\u4f5c\u53f0\u57df\u670d\u52a1\u8fc1\u5165\uff08workbench-service\uff09",
+      "blockedBy": [
+        "T03"
+      ],
+      "plan": "plans/T04-workbench-service-2026-09-01.md",
+      "status": "completed"
+    },
+    {
+      "id": "T06",
+      "title": "\u9884\u6d4b\u6a21\u578b\u5ba2\u6237\u7aef+Excel \u9002\u914d\uff08forecast-model-client\uff09",
+      "blockedBy": [
+        "T03"
+      ],
+      "plan": "plans/T06-forecast-model-client-2026-09-01.md",
+      "status": "completed",
+      "acceptance": "Offline tests 6 passed and plan lint passed. Model health and authenticated POST /api/forecast/runs passed; response ok=true with non-empty envelope.table.rows. PG relay/idempotency passed with counts 5201/16219/283829."
+    },
+    {
+      "id": "T05",
+      "title": "\u5f52\u56e0+whatif \u57df\u670d\u52a1\u8fc1\u5165\uff08attribution-whatif-service\uff09",
+      "blockedBy": [
+        "T03",
+        "T06"
+      ],
+      "plan": "plans/T05-attribution-whatif-service-2026-09-01.md",
+      "status": "completed",
+      "acceptance": "Offline: plan lint, ruff, compileall passed; targeted pytest 4 passed; forbidden-path grep zero hits. External: attribution options/skus/detail/trend and what-if baseline/strategies returned 200; simulate/optimize task IDs returned and both completed; PG counts attribution=16219, history=283829."
+    },
+    {
+      "id": "T07",
+      "title": "\u8ba4\u8bc1\u53cc\u901a\u9053\uff08auth-dual-channel\uff09",
+      "blockedBy": [
+        "T03"
+      ],
+      "plan": "plans/T07-auth-dual-channel-2026-09-01.md",
+      "status": "completed",
+      "acceptance": "OA dual-channel implementation; lint-plan, compileall, ruff, targeted pytest 15 passed, ASGI/PG acceptance passed; standalone curl skipped because local service unavailable"
+    },
+    {
+      "id": "T08",
+      "title": "LLM \u7f51\u5173\u9002\u914d\u4e0e\u5206\u6790\u589e\u5f3a\uff08llm-gateway\uff09",
+      "blockedBy": [
+        "T03"
+      ],
+      "plan": "plans/T08-llm-gateway-2026-09-01.md",
+      "status": "completed",
+      "acceptance": "LLM gateway/analysis/health implementation; lint-plan, targeted pytest 12 plus health 1, ruff, compileall, route checks passed; no real LLM call"
+    },
+    {
+      "id": "T09",
+      "title": "backup \u539f\u751f\u804a\u5929\u4e0a\u4e0b\u6587\u4e0e\u80fd\u529b\u5de5\u5177\uff08chat-context-capability-tools\uff09",
+      "blockedBy": [
+        "T04",
+        "T05",
+        "T06",
+        "T08"
+      ],
+      "plan": "plans/T09-chat-context-capability-tools-2026-09-01.md",
+      "status": "completed",
+      "acceptance": "T09 final acceptance passed: 19 targeted/regression tests, session-stream 7 passed, source guard clean, plan lint valid."
+    },
+    {
+      "id": "T10",
+      "title": "\u804a\u5929 envelope \u7f16\u6392+SSE+\u843d\u5e93\uff08chat-envelope-service\uff09",
+      "blockedBy": [
+        "T09",
+        "T07"
+      ],
+      "plan": "plans/T10-chat-envelope-service-2026-09-01.md",
+      "status": "completed",
+      "acceptance": "T10 completed: 9 targeted tests, 12 native regressions, compileall/ruff/source guard/plan lint passed; Windows HTTP sessions/chat/stream and PG envelope checks passed."
+    },
+    {
+      "id": "T11",
+      "title": "\u7ba1\u7406\u7aef API \u5bf9\u9f50\u9a8c\u8bc1\uff08admin-api-align\uff09",
+      "blockedBy": [
+        "T03"
+      ],
+      "plan": "plans/T11-admin-api-align-2026-09-01.md",
+      "status": "completed"
+    },
+    {
+      "id": "T12",
+      "title": "\u524d\u7aef\u53cc\u767b\u5f55\u6539\u9020\uff08login-dual-entry\uff09",
+      "blockedBy": [
+        "T02",
+        "T07"
+      ],
+      "plan": "plans/T12-login-dual-entry-2026-09-01.md",
+      "status": "completed",
+      "acceptance": "\u6309\u7528\u6237\u51b3\u5b9a\u6682\u7f13 OA \u5916\u90e8\u7f51\u5173\u9a8c\u6536\uff1bemail \u53cc\u5165\u53e3\u3001backup JWT refresh\u3001\u6d4f\u89c8\u5668 network/localStorage \u5951\u7ea6\u5747\u901a\u8fc7\uff0cOA \u4fdd\u7559\u540e\u7eed\u590d\u9a8c\u70b9\u3002"
+    },
+    {
+      "id": "T13",
+      "title": "\u7ba1\u7406\u7aef\u516d\u9875 React \u65b0\u5efa\uff08admin-pages-react\uff09",
+      "blockedBy": [
+        "T02",
+        "T11",
+        "T12"
+      ],
+      "plan": "plans/T13-admin-pages-react-2026-09-01.md",
+      "status": "completed",
+      "acceptance": "T13 completed: frontend build/plan lint, email admin login/auth me, 9 \u7ec4 admin API\u3001\u516d\u4e2a admin \u5b50\u8def\u7531\u4e0e\u672a\u8ba4\u8bc1 401 \u9a8c\u6536\u901a\u8fc7\uff1bOA deferred per scope."
+    },
+    {
+      "id": "T14",
+      "title": "icewash \u6808\u8054\u8c03\u81ea\u68c0\uff08icewash-stack-check\uff09",
+      "blockedBy": [
+        "T03"
+      ],
+      "plan": "plans/T14-icewash-stack-check-2026-09-01.md",
+      "status": "completed",
+      "acceptance": "T14 worker passed health, strategies, predict/task persistence, simulate, optimize, pg_sync counts, lint-plan, py_compile, and git diff check"
+    },
+    {
+      "id": "T15",
+      "title": "\u7aef\u5230\u7aef\u9a8c\u6536\uff08e2e-acceptance\uff09",
+      "blockedBy": [
+        "T04",
+        "T05",
+        "T06",
+        "T10",
+        "T11",
+        "T12",
+        "T13",
+        "T14"
+      ],
+      "plan": "plans/T15-e2e-acceptance-2026-09-01.md",
+      "status": "completed",
+      "acceptance": "\u6309\u7528\u6237\u8981\u6c42\u91c7\u7528 email-only \u5f00\u53d1\u8def\u5f84\uff1b\u7aef\u5230\u7aef email/forecast/PG/what-if/chat SSE/admin/frontend \u9a8c\u6536\u901a\u8fc7\u3002OA \u4e0e AGENT_API_KEY \u4f9d\u8d56\u7684\u81ea\u7136\u8bed\u8a00 live LLM \u9a8c\u6536 deferred\uff0c\u4fdd\u7559\u540e\u7eed\u8865\u9a8c\u70b9\u3002"
+    }
+  ],
+  "markdown_view": {
+    "prefix": "<!-- GENERATED FROM docs/todo.json; DO NOT EDIT -->\n# LCT-predict-agent \u00b7 \u7f1d\u5408\u91cd\u6784\u5b9e\u65bd\u4efb\u52a1\u6e05\u5355\uff08docs/todo.md\uff09\n\n> \u65e5\u671f\uff1a2026-09-01\n> \u72b6\u6001\uff1a\u5168\u65b0\u5f00\u5c40\u2014\u2014\u7f1d\u5408 `reference_repo/predict-agent/backend-backup`\uff08\u901a\u7528 Agent \u540e\u7aef\u58f3\uff09+ `reference_repo/predict-agent/frontend-ref`\uff08\u51b0\u6d17\u5de5\u4f5c\u53f0 React \u524d\u7aef\uff09\uff0c\u65e7 plans/todo \u5df2\u6089\u6570\u5220\u9664\uff0c\u672c\u6e05\u5355\u4ece T01 \u8d77\u3002\n> \u8ba1\u5212\u6587\u4ef6\u76ee\u5f55\uff1adocs/plans/\n> \u8bf4\u660e\uff1a\u672c\u6e05\u5355\u4e0e docs/plans/ \u4e0b\u4efb\u52a1\u8ba1\u5212\u4e00\u4e00\u5bf9\u5e94\uff08`\u4e00\u4efb\u52a1\u4e00\u6587\u4ef6`\uff09\uff0c\u4ee5\u300c\u62d3\u6251\u987a\u5e8f\u300d\u6392\u5217\uff08\u524d\u7f6e\u4efb\u52a1\u5728\u524d\uff09\u3002\n\n---\n\n## \u4e00\u3001\u4efb\u52a1\u603b\u89c8\uff08\u62d3\u6251\u987a\u5e8f = \u5efa\u8bae\u6267\u884c\u987a\u5e8f\uff09\n\n| \u5e8f\u53f7 | \u4efb\u52a1 ID | \u6807\u9898\uff08\u82f1\u6587\u77ed\u540d\uff09 | blockedBy | \u72b6\u6001 | \u9a8c\u6536\u8981\u70b9\uff08\u6458\u8981\uff09 | \u8ba1\u5212\u6587\u4ef6 |\n|---|---|---|---|---|---|---|\n",
+    "suffix": "\n---\n\n## \u4e8c\u3001\u62d3\u6251\u987a\u5e8f\u6ce8\u91ca\uff08blockedBy \u4f9d\u636e\u6458\u8981\uff09\n\n- **\u6e90**\uff1a`reference_repo/predict-agent/backend-backup`\uff08\u901a\u7528 Agent \u540e\u7aef\u58f3\uff1aFastAPI + SQLAlchemy2 async + PG + JWT \u53cc\u4ee4\u724c + RBAC + engine loop + \u6c99\u7bb1 + SSE + \u8ffd\u6eaf\uff09**\u4e3a\u540e\u7aef\u5e95\u5ea7**\uff1b`reference_repo/predict-agent/frontend-ref`\uff08React18 + Tailwind + zustand + echarts\uff0c11 \u9875 + 10 \u7ec4\u4ef6\uff09**\u4e3a\u524d\u7aef\u4e3b\u4f53**\uff1b`reference_repo/predict-agent/backend-ref`\uff08\u72ec\u7acb FastAPI \u51b0\u6d17\u5e73\u53f0\uff1aOA \u767b\u5f55 / \u4f1a\u8bdd / Agent \u6865 / \u5f02\u6b65\u9884\u6d4b client / workbench / attribution / whatif \u80fd\u529b\u57df\uff09**\u4e3a\u80fd\u529b\u57df\u4e0e\u804a\u5929 envelope \u6e90\u7684\u53c2\u8003\u5b9e\u73b0**\uff1b`services/icewash-model`\uff08cbg_fcst_month\uff09**\u4e3a\u51b0\u6d17\u9884\u6d4b\u6a21\u578b\u72ec\u7acb\u670d\u52a1\uff08\u5df2\u5c31\u7eea\uff0c\u51e0\u4e4e\u4e0d\u6539\uff09**\u3002reference_repo \u4e09\u76ee\u5f55**\u53ea\u8bfb\u53c2\u8003\u3001\u6c38\u4e0d import**\uff1b\u5b9e\u73b0\u5168\u90e8\u843d\u6839\u76ee\u5f55\u65e0\u540e\u7f00 `backend/`\u3001`frontend/`\uff0c\u6a21\u578b\u843d `services/icewash-model/`\u3002\n- **\u5c42 0\uff08\u53ef\u5e76\u884c\uff09**\uff1a`T01\uff08\u540e\u7aef\u58f3\u5c31\u4f4d\uff09`\u3001`T02\uff08\u524d\u7aef\u5c31\u4f4d\uff09`\u65e0\u524d\u7f6e\uff0c\u5929\u7136\u5e76\u884c\u3002\n- **\u5c42 1\uff08\u6570\u636e\u5e95\u5ea7\uff09**\uff1a`T03\uff08\u80fd\u529b\u57df+\u804a\u5929\u57df\u6570\u636e\u6a21\u578b\u5e76\u5165 PG\uff09`\u4f9d\u8d56 `T01`\u2014\u2014\u5355\u4e00 PG \u6570\u636e\u6e90\uff0c\u65b0\u589e\u80fd\u529b\u57df\u8868 + \u804a\u5929\u57df\u52a0\u5217 + `users.oa`\uff0c\u5254\u9664 backend-ref \u7684 SQLite\uff08aiosqlite/PRAGMA/json_each\uff09\u3002\n- **\u5c42 2\uff08\u80fd\u529b\u57df/\u6a2a\u5207\u670d\u52a1\uff0c\u4f9d\u8d56 T03\uff09**\uff1a`T04\uff08workbench\uff09`\u3001`T06\uff08\u9884\u6d4b\u6a21\u578b\u5ba2\u6237\u7aef\uff09`\u3001`T07\uff08\u8ba4\u8bc1\u53cc\u901a\u9053\uff09`\u3001`T08\uff08LLM \u7f51\u5173\u63a5\u5165\uff09`\u3001`T11\uff08\u7ba1\u7406\u7aef API \u5bf9\u9f50\uff09`\u3001`T14\uff08icewash \u6808\u81ea\u68c0\uff09` \u53ef\u5e76\u884c\uff1b`T05\uff08attribution+whatif\uff09` \u5728 `T06` \u5b8c\u6210\u540e\u6267\u884c\uff0c\u8bfb\u53d6 T06 \u5199\u5165\u7684 PG \u8bed\u4e49\u8868\u3002\n- **\u5c42 3\uff08chat \u7f16\u6392\u805a\u5408\uff09**\uff1a`T09\uff08backup \u539f\u751f\u4e0a\u4e0b\u6587+\u4e94 capability \u5de5\u5177\uff09`\u4f9d\u8d56 `T04+T05+T06+T08`\uff08\u539f\u751f engine \u4e0a\u4e0b\u6587\u63a5\u5165\u80fd\u529b\u57df\u548c LLM \u7f51\u5173\uff09\uff1b`T10\uff08chat envelope \u7f16\u6392+SSE+\u843d\u5e93\uff09`\u4f9d\u8d56 `T09+T07`\u2014\u2014\u628a backup \u539f\u751f\u4e0a\u4e0b\u6587\u3001\u80fd\u529b\u5de5\u5177\u548c LLM \u7ed3\u679c\u7ec4\u88c5\u6210 `/api/chat/stream` \u7684 `status/result/done + envelope` \u901a\u9053\u3002\n- **\u5c42 4\uff08\u524d\u7aef\u5165\u53e3\u4e0e\u7ba1\u7406\u7aef\uff0c\u4f9d\u8d56\u540e\u7aef\uff09**\uff1a`T12\uff08\u524d\u7aef\u53cc\u767b\u5f55\uff09`\u4f9d\u8d56 `T02+T07`\uff1b`T13\uff08\u7ba1\u7406\u7aef\u516d\u9875\uff09`\u4f9d\u8d56 `T02+T11+T12`\uff0c\u590d\u7528 T12 \u7684\u8ba4\u8bc1\u8bf7\u6c42\u57fa\u5ea7\u3002\n- **\u6536\u53e3**\uff1a`T15\uff08\u7aef\u5230\u7aef\u9a8c\u6536\uff09`\u4f9d\u8d56 `T04+T05+T06+T10+T11+T12+T13+T14`\u3002\n- **\u5173\u952e\u53e3\u5f84\uff08\u843d\u4e3a\u786c\u7ea6\u675f\uff09**\uff1a\u2460 **\u5355\u4e00\u6570\u636e\u6e90 = PG**\u2014\u2014\u80fd\u529b\u57df\u8868\uff08workbench_dataset_rows / attribution_analysis_rows / forecast_history_rows \u7b49\uff09\u4e0e\u804a\u5929\u57df\uff08\u5e76\u5165 conversations/messages \u52a0\u5217\uff09\u4e0e\u58f3 17 \u8868\u5168\u5728\u4e00\u4e2a PG\uff0c\u5254 backend-ref \u7684 SQLite/aiosqlite/PRAGMA/json_each\uff08`json_each`\u2192PG `jsonb_each`\uff09\uff1b\u2461 **\u524d\u7aef\u5951\u7ea6\u4e0d\u7834\u574f**\uff1afrontend-ref `api.ts` \u7684 `/api/auth/login`\u3001`/api/sessions`\u3001`/api/chat`\u3001`/api/chat/stream`\u3001`/api/workbench/*`\u3001`/api/attribution/*`\u3001`/api/whatif/*`\u3001`/api/whatif/baseline`\u3001`/api/whatif/strategies`\u3001`/api/products`\u3001`/api/agent/probe*`\u3001`/api/health/agent` \u5168\u90e8\u6309\u73b0\u5b57\u6bb5\u5b9e\u73b0\uff0cSSE \u4e3a `status\u2192result\u2192done + envelope(response_type/text/chart/table)`\uff1b`/api/agent/probe*` \u7531 T10 \u4ee5 frontend-ref `api.ts` \u7684\u5b9e\u9645 method/path/body/response \u4e3a\u51c6\u517c\u5bb9\uff0c\u4e0d\u65b0\u589e\u7b2c\u4e8c\u5957\u5951\u7ea6\uff1b\u2462 **\u804a\u5929\u6570\u636e\u5e76\u5165 conversations/messages**\u2014\u2014\u4e0d\u65b0\u5efa backend-ref \u7684 chat_sessions/chat_messages/session_memory_chunks\uff0c`messages` \u52a0 `result_envelope(JSONB)`\u3001`conversations` \u52a0 `agent_conversation_id/memory_summary/memory_slots/summary_upto_id`\uff1b\u2463 **\u804a\u5929\u5e95\u5ea7\u4ee5 backend-backup \u4e3a\u51c6**\u2014\u2014LLMProvider\u3001engine loop\u3001tool registry\u3001SSE\u3001trace\u3001Conversation/Message \u5168\u90e8\u4fdd\u7559\uff0cbackend-ref \u7684 intent/planner/regex \u89c4\u5219/\u5411\u91cf memory \u4e0d\u8fc1\u79fb\uff1b\u2464 **\u8ba4\u8bc1\u53cc\u901a\u9053**\u2014\u2014email+password\uff08backup `/api/v1/auth/*` \u5168\u4fdd\u7559\uff09+ OA\uff08`POST /api/auth/login`\uff0cOAuth \u7f51\u5173\u6362\u53d6 `oauth_access_token` \u2192 \u6309\u89c4\u8303\u5316 oa \u5efa/\u5173\u8054 user \u2192 \u7b7e backup \u7684 JWT \u53cc\u4ee4\u724c\uff1b\u5de5\u4f5c\u53f0 Authorization \u4f7f\u7528 backup JWT\uff0cLLM `new_token` \u4f7f\u7528 OAuth token\uff09\uff1b\u2465 **\u7b56\u7565\u76ee\u5f55\u552f\u4e00\u6765\u6e90 = icewash-model**\u2014\u2014`/api/whatif/strategies` \u53ea\u8f6c\u53d1 icewash `/whatif/strategies`\uff0c`/api/whatif/baseline` \u53ea\u8bfb PG\uff0c`simulate/optimize` \u53ea\u8f6c\u53d1 icewash `/simulate` `/optimize`\uff1bbackend \u4e0d\u590d\u5236\u7b56\u7565\u76ee\u5f55\u6216\u6f14\u7b97\u516c\u5f0f\uff1b\u2466 **\u771f\u5b9e\u7aef\u5230\u7aef**\u2014\u2014\u771f\u5b9e LLM \u7f51\u5173\uff08backup LLMProvider/engine \u4f5c\u4e3a\u804a\u5929\u7f16\u6392\u5e95\u5ea7\uff0cml-api-gw \u5ba2\u6237\u7aef\u548c Turing \u4f5c\u4e3a\u7f51\u5173/\u5206\u6790\u589e\u5f3a\uff09+ \u771f\u5b9e icewash \u9884\u6d4b\uff08`POST /predict` + `GET /tasks/{id}` \u8f6e\u8be2\uff09\u2192 \u7ed3\u679c\u843d PG + \u5de5\u4f5c\u53f0\u5c55\u793a\u771f\u5b9e\u6570\u636e\u3002\n- **T04 \u53c2\u8003\u6570\u636e\u53e3\u5f84**\uff1a`docs/UI\u8bbe\u8ba1\u7a3f/*.xlsx` \u548c `docs/\u77e5\u8bc6\u5e93/*.md` \u53ea\u4f5c\u4e3a\u521d\u59cb\u8fc1\u79fb\u8f93\u5165\uff1b\u8fd0\u884c\u65f6\u526f\u672c\u5f52 `services/icewash-model/data/reference/`\uff0c\u7531\u6a21\u578b loader \u6821\u9a8c\u5e76\u901a\u8fc7\u5185\u90e8\u63a5\u53e3\u5bfc\u51fa\uff1b`cost_data`\u3001`price_elasticity` \u4ec5\u4ee5\u6a21\u578b\u5bfc\u51fa\u7ed3\u679c\u540c\u6b65\u5230 PG `workbench_dataset_rows`\uff0c\u7b56\u7565 Excel/Markdown \u4e0d\u5165 PG\uff0c\u524d\u540e\u7aef\u4e0d\u5f97\u76f4\u63a5\u8bfb\u53d6 `docs/`\u3002\n- **\u5df2\u51b3\u8865\u5145\u53e3\u5f84**\uff1a`/api/products` \u4fdd\u7559 T10 \u7684 PG \u517c\u5bb9\u6295\u5f71\uff0c\u8868\u4e3a\u7a7a\u65f6\u8fd4\u56de `[]`\uff1b\u7ba1\u7406\u7aef\u516d\u9875\u524d\u7aef\u65e0 React \u73b0\u6210\u7248\uff0cT13 \u5168\u91cf\u65b0\u5199\uff1bT10 \u8d1f\u8d23\u517c\u5bb9 frontend-ref \u5df2\u58f0\u660e\u7684 `/api/agent/probe*` \u8def\u5f84\u3002\n\n---\n\n## \u4e09\u3001\u4ea4\u4ed8\u7269\u6838\u5bf9\uff08\u5bf9\u7167\u4efb\u52a1\u8981\u6c42\uff09\n\n- [x] docs/plans/ \u4e0b\u751f\u6210\u4efb\u52a1\u8ba1\u5212\u6587\u4ef6\uff0c\u6587\u4ef6\u540d\u7b26\u5408 `T{n}-description-of-the-plan-YYYY-MM-DD.md`\uff0c\u4e92\u4e0d\u91cd\u540d\n- [x] \u4efb\u4e00\u8ba1\u5212\u6587\u4ef6\u53ef\u72ec\u7acb\u5f00\u5de5\uff08\u542b blockedBy/\u6b65\u9aa4/\u6d89\u53ca\u6587\u4ef6/\u53ef\u8fd0\u884c\u9a8c\u6536\u9879\uff09\n- [x] todo.md \u7531 docs/todo.json \u5bfc\u51fa\uff1b\u4efb\u52a1\u72b6\u6001\u3001\u4f9d\u8d56\u548c\u8ba1\u5212\u8def\u5f84\u4ee5 JSON \u4e3a\u51c6\n- [x] \u6bcf\u4efb\u52a1\u9a8c\u6536\u6807\u51c6\u81f3\u5c11\u542b 1 \u6761\u53ef\u8fd0\u884c\u9a8c\u8bc1\u9879\n- [x] \u672c\u6b21\u8ba1\u5212\u5df2\u9010\u6761\u8bc4\u5ba1\u901a\u8fc7\uff0c\u672a\u51b3\u7b56\u7565\u6765\u6e90\u548c What-if \u8bf7\u6c42\u5b57\u6bb5\u5df2\u6536\u53e3\n"
+  }
+}

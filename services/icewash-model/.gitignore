@@ -2,8 +2,9 @@
 data/
 
 # 预测输出产物（大文件）
+output/
 *.xlsx
 
 # 运行日志
-log/*.txt
+log/*
 !log/.gitkeep

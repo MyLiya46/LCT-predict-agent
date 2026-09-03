@@ -1,0 +1,28 @@
+import { useCallback, useEffect, useState } from "react";
+import { adminCreateUser, adminListUsers, adminPatchUser, adminResetPassword, type AdminUser } from "../../api";
+import { useAuthStore } from "../../authStore";
+import { AdminButton, AdminInput, AdminNotice, AdminPage, AdminSelect, AdminTable, AdminTd, AdminTh } from "../../components/AdminTable";
+
+export function UsersPage() {
+  const currentEmail = useAuthStore((state) => state.email);
+  const [users, setUsers] = useState<AdminUser[]>([]);
+  const [q, setQ] = useState(""); const [status, setStatus] = useState(""); const [role, setRole] = useState("");
+  const [loading, setLoading] = useState(true); const [saving, setSaving] = useState(false); const [error, setError] = useState(""); const [success, setSuccess] = useState("");
+  const [form, setForm] = useState({ email: "", nickname: "", initial_password: "", role: "user" });
+  const load = useCallback(async () => { setLoading(true); setError(""); try { const result = await adminListUsers(q, role, status, 100); setUsers(result.items || []); } catch (e) { setError(e instanceof Error ? e.message : "用户列表加载失败"); } finally { setLoading(false); } }, [q, role, status]);
+  useEffect(() => { void load(); }, [load]);
+  const run = async (action: () => Promise<unknown>, message: string) => { setSaving(true); setError(""); setSuccess(""); try { await action(); setSuccess(message); await load(); } catch (e) { setError(e instanceof Error ? e.message : "操作失败"); } finally { setSaving(false); } };
+  const create = async (event: React.FormEvent) => { event.preventDefault(); if (form.initial_password.length < 10) { setError("初始密码至少 10 个字符"); return; } await run(async () => { await adminCreateUser(form); setForm({ email: "", nickname: "", initial_password: "", role: "user" }); }, "用户已创建"); };
+  const reset = (user: AdminUser) => { const password = window.prompt(`为 ${user.email} 输入新密码（至少 10 个字符）`); if (!password) return; if (password.length < 10) { setError("新密码至少 10 个字符"); return; } void run(() => adminResetPassword(user.id, password), "密码已重置"); };
+  const patch = (user: AdminUser, body: { role?: string; status?: string }) => { if (body.status === "disabled" && user.email === currentEmail) { setError("不能禁用当前登录账号"); return; } void run(() => adminPatchUser(user.id, body), "用户信息已更新"); };
+  return <AdminPage title="用户管理" description="管理管理员与普通用户账号、角色和状态。">
+    <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="space-y-3">
+        {success ? <AdminNotice kind="success">{success}</AdminNotice> : null}{error ? <AdminNotice>{error}</AdminNotice> : null}
+        <div className="flex flex-wrap gap-2 rounded-xl border border-border bg-card p-3 shadow-panel"><AdminInput placeholder="搜索邮箱或昵称" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-xs" /><AdminSelect value={role} onChange={(e) => setRole(e.target.value)}><option value="">全部角色</option><option value="admin">admin</option><option value="user">user</option></AdminSelect><AdminSelect value={status} onChange={(e) => setStatus(e.target.value)}><option value="">全部状态</option><option value="active">active</option><option value="disabled">disabled</option></AdminSelect></div>
+        {loading ? <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-fg">加载中…</div> : users.length === 0 ? <div className="rounded-xl border border-border bg-card p-8 text-center text-sm text-muted-fg">暂无用户</div> : <AdminTable><thead><tr><AdminTh>账号</AdminTh><AdminTh>角色</AdminTh><AdminTh>状态</AdminTh><AdminTh>创建时间</AdminTh><AdminTh>操作</AdminTh></tr></thead><tbody>{users.map((user) => <tr key={user.id}><AdminTd><div className="font-medium">{user.email}</div><div className="text-xs text-muted-fg">{user.nickname || "未设置昵称"}</div></AdminTd><AdminTd><AdminSelect aria-label={`${user.email} 角色`} value={user.roles.includes("admin") ? "admin" : "user"} disabled={saving} onChange={(e) => patch(user, { role: e.target.value })}><option value="user">user</option><option value="admin">admin</option></AdminSelect></AdminTd><AdminTd><AdminSelect aria-label={`${user.email} 状态`} value={user.status} disabled={saving || user.email === currentEmail} onChange={(e) => patch(user, { status: e.target.value })}><option value="active">active</option><option value="disabled">disabled</option></AdminSelect></AdminTd><AdminTd className="whitespace-nowrap text-xs text-muted-fg">{user.created_at ? new Date(user.created_at).toLocaleString() : "—"}</AdminTd><AdminTd><button type="button" disabled={saving} onClick={() => reset(user)} className="text-xs text-primary hover:underline disabled:opacity-50">重置密码</button></AdminTd></tr>)}</tbody></AdminTable>}
+      </div>
+      <form onSubmit={create} className="h-fit space-y-3 rounded-xl border border-border bg-card p-4 shadow-panel"><h2 className="font-semibold">创建用户</h2><label className="block text-sm">邮箱<AdminInput required type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></label><label className="block text-sm">昵称<AdminInput value={form.nickname} onChange={(e) => setForm({ ...form, nickname: e.target.value })} /></label><label className="block text-sm">初始密码<AdminInput required minLength={10} type="password" autoComplete="new-password" value={form.initial_password} onChange={(e) => setForm({ ...form, initial_password: e.target.value })} /></label><label className="block text-sm">角色<AdminSelect className="w-full" value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })}><option value="user">user</option><option value="admin">admin</option></AdminSelect></label><AdminButton type="submit" busy={saving}>创建用户</AdminButton></form>
+    </div>
+  </AdminPage>;
+}

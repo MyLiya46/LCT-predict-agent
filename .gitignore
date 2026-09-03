@@ -1,5 +1,7 @@
 # 密钥与环境
 .env
+.env.*
+!.env.example
 *.pem
 *.key
 *.p12
@@ -8,11 +10,14 @@
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
 .venv/
 .mypy_cache/
 .pytest_cache/
 .ruff_cache/
 .coverage
+.coverage.*
+.pytest_tmp/
 htmlcov/
 *.egg-info/
 build/
@@ -29,18 +34,30 @@ tmp/
 temp/
 cache/
 .cache/
+.tmp-*/
 *.tmp
+*.swp
+*.swo
+*.bak
+*.orig
+*.rej
 
 # 数据卷与产物
 pgdata/
+output/
 *.log
 *.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite3-*
 
 # IDE / OS
 .idea/
 .vscode/
 .DS_Store
 Thumbs.db
+/NUL
 
 # 参考仓库（不入库）
 reference_repo/

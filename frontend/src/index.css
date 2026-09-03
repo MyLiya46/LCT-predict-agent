@@ -1,0 +1,155 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --color-background: #f8fafc;
+  --color-card: #ffffff;
+  --color-foreground: #0f172a;
+  --color-muted: #f1f5f9;
+  --color-muted-fg: #64748b;
+  --color-border: #e2e8f0;
+  --color-primary: #1e40af;
+  --color-accent: #059669;
+  --color-warning: #d97706;
+  --color-destructive: #dc2626;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Fira Sans", system-ui, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  -webkit-font-smoothing: antialiased;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 999px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* 解读区：Mintlify DESIGN.md 文档散文（16px / 1.50 行高，表格承载数据） */
+.insight-prose {
+  max-width: 45rem;
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: #0a0a0a;
+}
+
+.insight-prose h1,
+.insight-prose h2,
+.insight-prose h3,
+.insight-prose h4 {
+  color: #0a0a0a;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.insight-prose h2 {
+  margin: 1.5rem 0 0.75rem;
+  padding-bottom: 0.5rem;
+  border-bottom: 1px solid #e5e5e5;
+  font-size: 18px;
+  line-height: 1.4;
+}
+
+.insight-prose h2:first-child {
+  margin-top: 0;
+}
+
+.insight-prose h3 {
+  margin: 1.25rem 0 0.5rem;
+  font-size: 16px;
+  line-height: 1.4;
+}
+
+.insight-prose p {
+  margin: 0.75rem 0;
+}
+
+.insight-prose ul,
+.insight-prose ol {
+  margin: 0.5rem 0 0.75rem;
+  padding-left: 1.25rem;
+}
+
+.insight-prose li {
+  margin: 0.25rem 0;
+}
+
+.insight-prose strong {
+  font-weight: 600;
+  color: #0a0a0a;
+}
+
+.insight-prose code {
+  font-family: ui-monospace, "Cascadia Code", "SFMono-Regular", Menlo, monospace;
+  font-size: 13px;
+  font-weight: 500;
+  background: #f7f7f7;
+  border: 1px solid #e5e5e5;
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.insight-prose table {
+  width: 100%;
+  margin: 0.75rem 0 1rem;
+  border-collapse: collapse;
+  font-size: 14px;
+  line-height: 1.5;
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.insight-prose thead {
+  background: #f7f7f7;
+}
+
+.insight-prose th,
+.insight-prose td {
+  padding: 0.625rem 1rem;
+  border-bottom: 1px solid #ededed;
+  text-align: left;
+}
+
+.insight-prose th {
+  font-size: 13px;
+  font-weight: 600;
+  color: #5a5a5c;
+}
+
+.insight-prose td:last-child,
+.insight-prose th:last-child {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.insight-prose tbody tr:last-child td {
+  border-bottom: 0;
+}

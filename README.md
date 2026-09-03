@@ -24,6 +24,8 @@ cd backend
 cp .env.example .env
 ```
 
+本地开发种子管理员固定为 `admin@corp.com` / `LctDevAdmin_2026!`。该密码仅用于本地开发；修改 `.env` 后，已有数据库用户不会自动改密，需要执行一次开发库密码重置。
+
 **数据库**
 
 ```bash
@@ -73,8 +75,15 @@ docker network create --driver bridge --subnet=10.0.0.0/24 sandbox-net
 docker build -t mock-sales-internal:dev services/mock-sales
 docker build -f services/icewash-model/Dockerfile.build -t icewash-model:dev services/icewash-model
 docker run -d --name mock-sales --network sandbox-net --ip 10.0.0.2 mock-sales-internal:dev
-docker run -d --name icewash-model --network sandbox-net --ip 10.0.0.3 -p 8002:8000 icewash-model:dev
+docker run -d --name icewash-model --network sandbox-net --ip 10.0.0.3 \
+  --add-host host.docker.internal:host-gateway \
+  -e BACKEND_PG_URL=postgresql+psycopg2://app:app@host.docker.internal:5432/agent_platform \
+  -v "$(pwd)/services/icewash-model:/app" -w /app/cbg_fcst_month \
+  -p 8001:8001 icewash-model:dev \
+  uvicorn server:app --host 0.0.0.0 --port 8001
 ```
+
+`scripts/start_dev_stack.sh` 会在模型容器缺少 `psycopg2`、PG 地址或 `/app` 挂载时自动按上述参数重建容器；重建不会删除宿主机上的模型输出和任务库。
 
 ### Docker Compose 一键部署
 ```bash

@@ -1,9 +1,9 @@
 # T15 · 端到端验收（e2e-acceptance）
 
-- **任务 ID**：T15
+- 任务 ID：T15
 - **标题与目标**：在统一 PG 数据源上验收双登录、backup 原生聊天编排、真实 LLM 网关、真实 `services/icewash-model` 五项能力、工作台和管理端；记录每条链路的请求、响应和落库证据。
 - **关联文档章节**：`docs/feat-icewash.md` §1、§3、§8、§10.1、§10.2、§11.1、§11.2
-- **前置依赖 blockedBy**：T04、T05、T06、T10、T11、T12、T13、T14
+- 前置依赖 blockedBy：T04、T05、T06、T10、T11、T12、T13、T14
 
 ## 验收边界
 
@@ -14,9 +14,34 @@
 5. `TEST_EMAIL`、`TEST_PASSWORD` 是已由 seed 创建且状态为 `active` 的普通用户；`ADMIN_EMAIL`、`ADMIN_PASSWORD` 是状态为 `active` 且具有 `admin` 角色的用户；`TEST_OA` 是可通过 OA 网关验证的 OA。验收 shell 只从环境变量读取这些值，不把密码或 token 打印到终端。
 6. 不在本任务自动执行完整 pytest 套件。pytest 执行范围固定为 T01 的 5 个快速壳测试；完整测试清单先用 `--collect-only` 输出，再由后续测试批次单独选择执行。
 
+## 问题
+- 任务 T15 当前需要完成本计划标题对应的交付；旧版计划结构无法被 plan-generator v1.2.0 的结构化校验直接读取。
+
+## 决策
+- 保留本计划既有技术边界、参数、实施内容和验收命令；仅补齐 v1.2.0 要求的元数据、章节与结构化执行入口。
+
+## 范围
+- 包含：本计划既有实施要点、涉及路径、接口、数据约束和验收项。
+- 不包含：改变任务目标、blockedBy 依赖、代码实现或项目业务口径。
+
+## 风险与回滚
+- 风险：旧计划正文中的命令或外部服务依赖可能在执行环境中不可用，导致该任务验收失败。
+- 回滚：执行前保存本任务涉及文件的补丁；失败时使用 `git apply -R /tmp/T15-plan.patch` 反向应用补丁并恢复前一阶段。
+
+## 实施步骤
+
+### 步骤 1：执行原计划实施内容
+- 对象：T15 对应的目标模块、接口和验收对象。
+- 动作：按下方保留的原实施内容执行，并使用其中的命令完成验证。
+- 参数：严格使用正文中给出的路径、端口、字段、超时、权限和命令参数。
+- 文件：docs/plans/T15-e2e-acceptance-2026-09-01.md
+- 命令：
+  ```bash
+  python /c/Users/jie32.guo/.codex/skills/plan-generator/scripts/plan_state.py lint-plan --plan docs/plans/T15-e2e-acceptance-2026-09-01.md
+  ```
 ## 1. 启动和健康检查
 
-### 1.1 准备 PG、依赖和迁移
+#### 1.1 准备 PG、依赖和迁移
 
 在仓库根目录执行：
 
@@ -46,7 +71,7 @@ test "$(pg "SELECT to_regclass('public.fcst_history')")" = 'fcst_history'
 test "$(pg "SELECT to_regclass('public.messages')")" = 'messages'
 ```
 
-### 1.2 启动目标模型
+#### 1.2 启动目标模型
 
 目标模型只从 `services/icewash-model/cbg_fcst_month` 启动，不读取、import 或引用已删除的旧模型目录：
 
@@ -65,7 +90,7 @@ grep -q 'healthy' /tmp/lct_icewash_health.json
 
 模型健康响应必须包含 `status=healthy`。若 60 秒内没有响应，保留 `/tmp/lct_icewash_e2e.log` 并停止验收。
 
-### 1.3 启动 backend、sandbox daemon 和 frontend
+#### 1.3 启动 backend、sandbox daemon 和 frontend
 
 启动前检查 `backend/.env` 中没有旧模型地址，且目标地址为 `http://127.0.0.1:8001`：
 
@@ -182,7 +207,7 @@ test "$USER_ADMIN_CODE" = 403
 
 ## 3. 真实预测聊天主链路
 
-### 3.0 history 能力
+#### 3.0 history 能力
 
 先用同一 email 用户验证 history 工具和工作台真实数据都来自 PG：
 
@@ -203,7 +228,7 @@ assert env.get('table', {}).get('rows') or env.get('rows')
 PY
 ```
 
-### 3.1 通过 stream 入口提交预测
+#### 3.1 通过 stream 入口提交预测
 
 使用 email backup JWT 发起预测；email 模式不把 backup JWT 放入 `access_token`：
 
@@ -225,7 +250,7 @@ grep -q '"forecast"' "$PREDICT_SSE"
 
 验收器记录 `status → result → done` 顺序，并确认 result 中包含 `session_id`、`message_id`、`envelope.response_type=forecast`、`envelope.table` 或等价预测表。不得出现 `input`、backup JWT、OAuth token 或网关密钥。
 
-### 3.2 验证模型任务和三张中转表
+#### 3.2 验证模型任务和三张中转表
 
 预测完成后从本次最新模型写入中取得实际版本号，不在计划中硬编码版本：
 
@@ -264,7 +289,7 @@ curl -fsS -H "Authorization: Bearer $EMAIL_JWT" \
 grep -q '"rows"' /tmp/lct_fcst_detail.json
 ```
 
-### 3.3 归因追问
+#### 3.3 归因追问
 
 复用上一轮 `session_id`，发送“冰箱为什么涨”，并保存第二轮 SSE：
 
@@ -298,7 +323,7 @@ grep -q 'attribution\|report' "$ATTR_SSE"
 
 ## 4. 工作台 What-if 真实数据链路
 
-### 4.1 baseline、策略目录和任务转发
+#### 4.1 baseline、策略目录和任务转发
 
 ```bash
 BASELINE=/tmp/lct_whatif_baseline.json
@@ -347,7 +372,7 @@ SIMULATE_TASK=$(python -c 'import json,sys; print(json.load(sys.stdin)["task_id"
 test -n "$SIMULATE_TASK"
 ```
 
-### 4.2 轮询 What-if 任务
+#### 4.2 轮询 What-if 任务
 
 使用固定 120 秒上限，终态只接受 `completed`；失败时输出最后一次响应和模型日志：
 
@@ -444,7 +469,12 @@ if grep -RInE 'docs/UI设计稿|docs/知识库' backend/src frontend/src; then e
 test "$(find backend -type f \( -name '.env' -o -name '.env.example' \) | wc -l)" -eq 2
 ```
 
-## 验收标准
+## 完成标准
+- 验收命令：
+  ```bash
+  python /c/Users/jie32.guo/.codex/skills/plan-generator/scripts/plan_state.py lint-plan --plan docs/plans/T15-e2e-acceptance-2026-09-01.md
+  ```
+- 通过条件：命令退出码为 0，且本节保留的原验收项全部满足。
 
 - [ ] Git Bash 启动链成功：PG 由 `scripts/dev_db_pg.sh` 迁移/种子，icewash `8001`、backend `8000`、frontend `5173`、sandbox `9000` 健康。
 - [ ] email 登录和 OA 登录都返回 backup JWT；OA 响应额外返回 OAuth token；工作台 HTTP Authorization 始终使用 backup JWT。
