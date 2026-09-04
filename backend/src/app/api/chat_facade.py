@@ -6,6 +6,8 @@ This module intentionally sits beside (rather than inside) the native
 """
 from __future__ import annotations
 
+import asyncio
+from collections.abc import AsyncIterator, Awaitable, Callable
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, Request
@@ -19,6 +21,7 @@ from app.auth.tokens import UserContext
 from app.config import get_settings
 from app.database import get_session, get_session_factory
 from app.domain.chat_service import (
+    delete_conversation,
     get_conversation,
     list_conversations,
     pin_conversation,
@@ -102,6 +105,16 @@ async def update_session(
     return _summary(conv)
 
 
+@router.delete("/api/sessions/{session_id}")
+async def delete_session(
+    session_id: str,
+    ctx: UserContext = Depends(require_perm("chat:delete")),
+    session: AsyncSession = Depends(get_session),
+):
+    await delete_conversation(session, session_id, ctx.id)
+    return {"ok": True}
+
+
 @router.get("/api/sessions/{session_id}")
 async def session_detail(
     session_id: str,
@@ -140,6 +153,54 @@ async def _run_turn(session: AsyncSession, ctx: UserContext, body: ChatRequest, 
     return await collect_turn(handle)
 
 
+async def _live_turn_events(
+    handle: Any,
+    *,
+    collector: Callable[..., Awaitable[dict[str, Any]]] = collect_turn,
+) -> AsyncIterator[tuple[str, dict[str, Any]]]:
+    """Relay status callbacks while the turn is still running.
+
+    The façade must keep the database session alive for ``collector`` while
+    also yielding status frames to the browser.  A queue separates those two
+    consumers without buffering the whole turn before the first SSE frame.
+    """
+
+    statuses: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+
+    async def on_status(status: dict[str, Any]) -> None:
+        await statuses.put(status)
+
+    collect_task = asyncio.create_task(collector(handle, on_status=on_status))
+    status_task: asyncio.Task[dict[str, Any]] | None = asyncio.create_task(statuses.get())
+    try:
+        while True:
+            assert status_task is not None
+            done, _ = await asyncio.wait(
+                {collect_task, status_task},
+                return_when=asyncio.FIRST_COMPLETED,
+            )
+            if status_task in done:
+                status = status_task.result()
+                yield ("delta" if status.get("delta") is not None else "status"), status
+                status_task = asyncio.create_task(statuses.get())
+            if collect_task in done:
+                result = collect_task.result()
+                while not statuses.empty():
+                    status = statuses.get_nowait()
+                    yield ("delta" if status.get("delta") is not None else "status"), status
+                yield "result", result
+                return
+    finally:
+        if status_task is not None and not status_task.done():
+            status_task.cancel()
+        if not collect_task.done():
+            collect_task.cancel()
+        await asyncio.gather(
+            *(task for task in (collect_task, status_task) if task is not None),
+            return_exceptions=True,
+        )
+
+
 @router.post("/api/chat")
 async def chat(
     body: ChatRequest,
@@ -169,21 +230,25 @@ async def chat_stream(
         # starts.  Keep this session alive for the entire turn.
         async with get_session_factory()() as session:
             handle = await start_turn(session, ctx, body, idempotency_key=idempotency_key)
-            result = await collect_turn(handle)
-            for status in result.get("status_events", []):
-                yield sse_frame("status", status)
-            yield sse_frame(
-                "result",
-                {
-                    "session_id": result["session_id"],
-                    "message_id": result["message_id"],
-                    "reply": result["reply"],
-                    "envelope": result["envelope"],
-                    "update_workspace": result.get("update_workspace", True),
-                    "steps": result.get("steps", []),
-                },
-            )
-            yield sse_frame("done", {"ok": bool(result.get("ok"))})
+            async for kind, payload in _live_turn_events(handle):
+                if kind == "delta":
+                    yield sse_frame("delta", {"text": payload.get("delta", "")})
+                    continue
+                if kind == "status":
+                    yield sse_frame("status", payload)
+                    continue
+                yield sse_frame(
+                    "result",
+                    {
+                        "session_id": payload["session_id"],
+                        "message_id": payload["message_id"],
+                        "reply": payload["reply"],
+                        "envelope": payload["envelope"],
+                        "update_workspace": payload.get("update_workspace", True),
+                        "steps": payload.get("steps", []),
+                    },
+                )
+                yield sse_frame("done", {"ok": bool(payload.get("ok"))})
 
     return StreamingResponse(
         generate(),

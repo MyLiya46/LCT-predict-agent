@@ -16,3 +16,10 @@ def test_facade_requests_accept_frontend_shapes():
 def test_session_patch_requires_a_change():
     assert SessionPatch(title="新标题").title == "新标题"
     assert SessionPatch(pinned=True).pinned is True
+
+
+def test_session_delete_route_is_exposed():
+    from app.main import app
+
+    route = app.openapi()["paths"]["/api/sessions/{session_id}"]["delete"]
+    assert route["responses"]["200"]["description"]

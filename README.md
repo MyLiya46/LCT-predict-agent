@@ -1,34 +1,25 @@
-# LCT-predict-agent · 通用 AI Agent 平台（P0）
+# LCT-predict-agent · 通用 AI Agent 平台（v0.1.0）
 
 内部人机对话智能助手：自然语言查询销售数据 + 销售预测，全链路可追溯，双端 RBAC（用户端/管理员端），Docker 一键部署。
 
 ## 技术栈
 
 FastAPI 3.11+ · PostgreSQL 16（JSONB/GIN）· SQLAlchemy 2 async · Alembic · SSE · JWT 双令牌
-Vue 3 + Vite + TS + Element Plus + ECharts · Docker Compose
+React 18 + Vite + TypeScript + Tailwind + ECharts · Docker Compose
 
 ## 快速开始
 
 ### 本地开发
 
-**环境要求**
+环境要求：Docker Desktop/Engine、Docker Compose v2、Python 3.11+、uv、Node.js 20+、npm。Windows 推荐在 Git Bash 中执行下面的命令。
 
-```plain text
-docker
-```
+#### 一键启动
 
-**环境变量**
+先准备一次本地开发配置和 PostgreSQL 容器：
 
 ```bash
-cd backend
-cp .env.example .env
-```
+cp backend/.env.example backend/.env
 
-本地开发种子管理员固定为 `admin@corp.com` / `LctDevAdmin_2026!`。该密码仅用于本地开发；修改 `.env` 后，已有数据库用户不会自动改密，需要执行一次开发库密码重置。
-
-**数据库**
-
-```bash
 docker run -d \
   --name LCT-predict-agent-pg \
   -p 5432:5432 \
@@ -39,60 +30,123 @@ docker run -d \
   postgres:16-alpine
 ```
 
-**后端**
+首次需要 mock 销售服务时，再创建其镜像和容器（容器已存在则跳过）：
 
 ```bash
-# 数据库迁移(可选)              # 在连好的 postgres:16 上执行Alembic 迁移 + 幂等种子（可重复运行）
-bash scripts/dev_db_pg.sh 
-# 启动后端
-cd backend && uv run uvicorn app.main:app --port 8000
-```
-
-**前端**
-
-```bash
-cd frontend
-npm install
-npm run dev       # http://localhost:5173，/api 反代到 :8000
-```
-
-**联调组件（工具执行依赖）**
-
-```bash
-# 1. 起容器（数据库 + mock 数据服务 + 冰洗模型）
-docker start LCT-predict-agent-pg mock-sales icewash-model
-
-# 2. 起沙箱 daemon（:9000，后台常驻）
-cd services/sandbox-daemon
-PYTHONPATH=src API_INTERNAL_TOKEN=dev_internal_token_001 nohup uv run python -m sd.main > /tmp/lct_sd_daemon.log 2>&1 &
-
-```
-
-首次搭建（容器/镜像不存在时）：
-
-```bash
-docker network create --driver bridge --subnet=10.0.0.0/24 sandbox-net
+docker network inspect sandbox-net >/dev/null 2>&1 || \
+  docker network create --driver bridge --subnet=10.0.0.0/24 sandbox-net
 docker build -t mock-sales-internal:dev services/mock-sales
-docker build -f services/icewash-model/Dockerfile.build -t icewash-model:dev services/icewash-model
-docker run -d --name mock-sales --network sandbox-net --ip 10.0.0.2 mock-sales-internal:dev
-docker run -d --name icewash-model --network sandbox-net --ip 10.0.0.3 \
-  --add-host host.docker.internal:host-gateway \
-  -e BACKEND_PG_URL=postgresql+psycopg2://app:app@host.docker.internal:5432/agent_platform \
-  -v "$(pwd)/services/icewash-model:/app" -w /app/cbg_fcst_month \
-  -p 8001:8001 icewash-model:dev \
-  uvicorn server:app --host 0.0.0.0 --port 8001
+docker run -d --name mock-sales --network sandbox-net --ip 10.0.0.2 \
+  mock-sales-internal:dev
 ```
 
-`scripts/start_dev_stack.sh` 会在模型容器缺少 `psycopg2`、PG 地址或 `/app` 挂载时自动按上述参数重建容器；重建不会删除宿主机上的模型输出和任务库。
+然后用脚本启动 PG 以外的本地联调服务：
 
-### Docker Compose 一键部署
 ```bash
-cp .env.example .env  # 填 JWT_SECRET / API_INTERNAL_TOKEN / POSTGRES_PASSWORD
-docker compose up -d --build   # db → api(迁移+种子) → sandbox-daemon → nginx
-curl http://localhost/api/v1/healthz
-./scripts/verify_up.sh docker
+bash scripts/start_dev_stack.sh
 ```
-- `db` 服务与本地开发用同一镜像 `postgres:16-alpine`，默认用户/库名与 `.env.example` 一致；数据持久化在 named volume `pgdata`（默认开启）。compose 内 `db` 不暴露 5432 端口（避免与本地 dev PG 冲突）；prod 如需直连，`docker exec -it <container> psql -U app -d agent_platform`。
+
+脚本会启动或复用 `icewash-model`，并强制重启后端 `:8000`、前端 `:5173` 和沙箱 daemon `:9000`；模型镜像来自 `services/icewash-model/Dockerfile.build`。浏览器访问 <http://127.0.0.1:5173>。
+
+停止本地联调进程和基础容器：
+
+```bash
+bash scripts/stop_dev_stack.sh
+```
+
+本地开发种子管理员默认是 `admin@corp.com` / `LctDevAdmin_2026!`，只适用于开发库。修改 `backend/.env` 后，已有数据库用户不会自动改密，需要单独执行开发库密码重置。
+
+#### 手动启动
+
+```bash
+# 从 backend/.env 读取配置，执行 Alembic 迁移和幂等种子
+bash scripts/dev_db_pg.sh
+
+# 后端（另开终端）
+(cd backend && uv run uvicorn app.main:app --host 0.0.0.0 --port 8000)
+
+# 前端（另开终端）
+(cd frontend && npm install && npm run dev)
+```
+
+Vite 开发服务器会把 `/api` 代理到 `http://127.0.0.1:8000`。如果需要单独启动沙箱 daemon：
+
+```bash
+(cd services/sandbox-daemon && \
+  API_INTERNAL_TOKEN=dev_internal_token_001 PYTHONPATH=src \
+  uv run python -m sd.main)
+```
+
+Git Bash 在 Windows 下运行模型容器的手动命令必须保留 `MSYS_NO_PATHCONV=1`；正常情况下直接使用 `scripts/start_dev_stack.sh`，脚本已经处理了 Windows 路径和 `/app` 工作目录转换。
+
+### 生产 Docker Compose 部署
+
+Compose 会在同一个网络中编排 `db`、`icewash-model`、`api`、`sandbox-daemon` 和 `nginx`；只有 Nginx 对宿主机发布端口，模型、API、PG 和沙箱均使用内部网络。生产 Compose 不启动 `mock-sales`，该服务只用于本地联调。
+
+#### 首次部署
+
+```bash
+cp .env.example .env
+# 编辑 .env，至少替换 POSTGRES_PASSWORD、JWT_SECRET、API_INTERNAL_TOKEN、ADMIN_INITIAL_PASSWORD
+
+# 先做 Compose 静态校验，再构建并启动
+docker compose --env-file .env config -q
+docker compose --env-file .env up -d --build
+docker compose --env-file .env ps
+```
+
+`POSTGRES_PASSWORD` 会被拼进 API 和 icewash 的 PostgreSQL 连接串，请使用 URL-safe 字符；需要公网访问时，建议在前置负载均衡器终止 TLS，并将 `NGINX_PORT` 设置为实际监听端口。
+
+启动检查：
+
+```bash
+curl -fsS http://127.0.0.1/readyz
+curl -fsS http://127.0.0.1/healthz
+docker compose --env-file .env ps
+```
+
+`api` 启动时会依次执行迁移、v1/v2 幂等种子，再启动 Uvicorn；`WORKBENCH_SYNC_ON_STARTUP=true` 会通过 icewash 的内部参考数据接口初始化工作台数据。
+
+#### 日常运维
+
+```bash
+# 查看启动失败原因或实时日志
+docker compose --env-file .env logs --tail=200 api icewash-model nginx sandbox-daemon
+docker compose --env-file .env logs -f api icewash-model nginx
+
+# 发布新版本：拉取代码后重建并滚动替换容器
+git pull
+docker compose --env-file .env build --pull
+docker compose --env-file .env up -d
+
+# 停止服务但保留 PG 数据卷
+docker compose --env-file .env down
+
+# 仅在明确要删除数据库数据时执行；会删除 pgdata 和 icewash-log
+docker compose --env-file .env down -v
+```
+
+数据库默认保存在 Compose named volume `pgdata`，生产环境应另外配置定期备份。例如：
+
+```bash
+docker compose --env-file .env exec -T db \
+  pg_dump -U app -d agent_platform > backups/agent_platform_$(date +%Y%m%d_%H%M%S).sql
+```
+
+#### Docker 文件核验
+
+| 文件 | 用途 | 结论 |
+|---|---|---|
+| `docker-compose.yml` | 生产编排、健康检查、迁移/种子顺序 | 已接入 icewash；API 使用 `icewash-model:8000`，不再使用容器内回环地址 |
+| `frontend/Dockerfile` + `frontend/nginx.conf` | React/Vite 构建、SPA 回退、API 反代 | 已补齐；`/api/chat/stream` 关闭 Nginx buffering |
+| `backend/Dockerfile` | 后端依赖和应用镜像 | 构建失败会直接退出，不再用 `|| true` 掩盖依赖问题 |
+| `services/icewash-model/Dockerfile.build` | 可移植的模型生产镜像 | Compose 使用此文件；构建上下文是 `services/icewash-model` |
+| `services/icewash-model/cbg_fcst_month/Dockerfile` | 内部基础镜像变体 | 依赖企业内部基础镜像，不作为默认 Compose 入口 |
+| `services/sandbox-daemon/Dockerfile` | 生产沙箱 daemon | Compose 通过只读 Docker socket 运行，端口仅在内部网络暴露 |
+| `services/mock-sales/Dockerfile` | 本地 mock 销售服务 | 仅首次本地联调手动创建，不进入生产 Compose |
+| `tools/*/Dockerfile` | 沙箱工具运行时镜像 | 由 daemon 按工具配置使用，不是 Compose 常驻服务 |
+
+根目录 `.env.example` 只服务生产 Compose；`backend/.env.example` 只服务源码本地开发。仓库没有 `scripts/verify_up.sh`，部署验收以 `config -q`、`/readyz`、`/healthz` 和 `docker compose ps` 为准。
 
 
 ## 目录

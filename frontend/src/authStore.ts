@@ -33,6 +33,7 @@ type AuthState = AuthSession & {
   ensureValidToken: () => Promise<AuthToken>;
   login: (oa: string) => Promise<void>;
   loginEmail: (email: string, password: string) => Promise<void>;
+  register: (email: string, password: string, nickname: string) => Promise<void>;
   logout: () => void;
 };
 
@@ -308,6 +309,10 @@ export const useAuthStore = create<AuthState>((set, get) => {
         set({ ...EMPTY_SESSION, hydrated: true });
         throw error;
       }
+    },
+
+    register: async (email, password, nickname) => {
+      await api.registerWithEmail(email.trim().toLowerCase(), password, nickname.trim());
     },
 
     logout: () => {

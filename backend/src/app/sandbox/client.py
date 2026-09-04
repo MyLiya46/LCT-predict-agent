@@ -11,9 +11,6 @@ from typing import Any, Optional
 import httpx
 
 from app.config import get_settings
-from app.utils.errors import InternalError
-
-SANDBOX_URLS = f"{get_settings().sandbox_daemon_url}".rstrip("/")
 
 
 class ToolExecutionResult:
@@ -61,6 +58,14 @@ class ToolExecutionResult:
         }
 
 
+def _redact(value: Any, secrets: list[str]) -> str:
+    text = str(value or "")
+    for secret in secrets:
+        if secret:
+            text = text.replace(secret, "[redacted]")
+    return text
+
+
 async def execute(
     tool_execution: dict[str, Any],
     datasource_creds: dict[str, str],
@@ -79,6 +84,8 @@ async def execute(
     """
     settings = get_settings()
     effective_timeout = timeout_s or tool_execution.get("timeout_s") or settings.sandbox_timeout_s
+    daemon_url = settings.sandbox_daemon_url.rstrip("/")
+    redaction_values = [settings.api_internal_token, *datasource_creds.values()]
     payload = {
         "tool_execution": tool_execution,
         "datasource_creds": datasource_creds,
@@ -90,7 +97,7 @@ async def execute(
     started = time.monotonic()
     try:
         async with httpx.AsyncClient(timeout=effective_timeout + 10, trust_env=False) as client:
-            resp = await client.post(f"{SANDBOX_URLS}/run", json=payload, headers=headers)
+            resp = await client.post(f"{daemon_url}/run", json=payload, headers=headers)
         elapsed_ms = int((time.monotonic() - started) * 1000)
     except httpx.TimeoutException:
         return ToolExecutionResult(
@@ -99,7 +106,7 @@ async def execute(
         )
     except httpx.HTTPError as exc:
         return ToolExecutionResult(
-            ok=False, error_code="SANDBOX", message=f"沙箱 daemon 不可达: {exc}", retryable=True,
+            ok=False, error_code="SANDBOX", message=f"沙箱 daemon 不可达: {_redact(exc, redaction_values)}", retryable=True,
             duration_ms=int((time.monotonic() - started) * 1000), request_id=request_id,
         )
 
@@ -109,7 +116,26 @@ async def execute(
             retryable=True, duration_ms=elapsed_ms, request_id=request_id,
         )
 
-    body = resp.json()
+    try:
+        body = resp.json()
+    except (TypeError, ValueError):
+        return ToolExecutionResult(
+            ok=False,
+            error_code="SANDBOX",
+            message="沙箱 daemon 返回无效响应",
+            retryable=True,
+            duration_ms=elapsed_ms,
+            request_id=request_id,
+        )
+    if not isinstance(body, dict):
+        return ToolExecutionResult(
+            ok=False,
+            error_code="SANDBOX",
+            message="沙箱 daemon 返回无效响应",
+            retryable=True,
+            duration_ms=elapsed_ms,
+            request_id=request_id,
+        )
     if body.get("ok"):
         return ToolExecutionResult(
             ok=True,
@@ -121,10 +147,12 @@ async def execute(
             reused_warm=bool(body.get("reused_warm")),
         )
     err = body.get("error", {})
+    if not isinstance(err, dict):
+        err = {}
     return ToolExecutionResult(
         ok=False,
         error_code=err.get("code", "SANDBOX"),
-        message=err.get("message", "沙箱执行失败"),
+        message=_redact(err.get("message", "沙箱执行失败"), redaction_values),
         retryable=bool(err.get("retryable", True)),
         duration_ms=elapsed_ms,
         request_id=request_id,

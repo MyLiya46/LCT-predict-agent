@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
-import type { EChartsOption } from "echarts";
+import type { EChartsOption, LineSeriesOption } from "echarts";
 import {
   ChartLine,
   CircleNotch,
@@ -17,17 +17,20 @@ import {
   fetchAttributionOptions,
   fetchWhatIfBaseline,
   fetchWhatIfStrategies,
+  fetchWhatIfTask,
   fetchWorkbenchTable,
+  submitWhatIfOptimization,
+  submitWhatIfSimulation,
   type WhatIfBaselineItem,
+  type WhatIfModelResultRow,
+  type WhatIfModelRow,
   type WhatIfStrategy,
 } from "../api";
 import {
   DEFAULT_TRAFFIC_TIER,
   TRAFFIC_TIERS,
   defaultStrategyId,
-  simulateRow,
   strategiesForStatusGroup,
-  suggestPriceCutParam,
   type TrafficTierId,
   type WhatIfStrategyMeta,
 } from "../whatifSimulate";
@@ -35,6 +38,8 @@ import {
 const RIGHT_PANEL_MIN = 280;
 const LEFT_PANEL_MIN = 420;
 const RIGHT_PANEL_DEFAULT = 380;
+const DEFAULT_GOAL_VOL = "8";
+const DEFAULT_GOAL_REV = "50";
 
 function versionsForCategory(allVersions: string[], category: string): string[] {
   if (!category) return allVersions;
@@ -111,21 +116,6 @@ type SimRow = WhatIfBaselineItem & {
   traffic_tier: TrafficTierId | null;
 };
 
-function rowEd(r: SimRow): number {
-  return r.elasticity?.ed ?? 1.0;
-}
-
-function applySim(r: SimRow, strategyId: string, param: string, tier: TrafficTierId | null) {
-  return simulateRow({
-    baseline_qty: r.baseline_qty,
-    plan_price: r.plan_price,
-    strategy_id: strategyId,
-    param,
-    ed: rowEd(r),
-    traffic_tier: tier,
-  });
-}
-
 function rowMetrics(r: SimRow) {
   const simPrice = r.sim_price ?? r.plan_price ?? 0;
   const qty = r.sim_qty || 0;
@@ -133,6 +123,58 @@ function rowMetrics(r: SimRow) {
   const simAmount = simPrice * qty;
   const grossProfit = (simPrice - cost) * qty;
   return { simAmount, grossProfit };
+}
+
+function seriesFromRows(
+  rows: SimRow[],
+  months: string[],
+  value: "baseline_qty" | "sim_qty",
+  fallbackSeries: number[] = [],
+) {
+  if (!months.length) return [];
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    const month = String(row.period || "");
+    if (!month) continue;
+    totals.set(month, (totals.get(month) || 0) + Number(row[value] || 0));
+  }
+  if (totals.size) return months.map((month) => Number(((totals.get(month) || 0) / 10000).toFixed(2)));
+  const base = rows.reduce((sum, row) => sum + Number(row.baseline_qty || 0), 0);
+  const current = rows.reduce((sum, row) => sum + Number(row[value] || 0), 0);
+  const lift = base > 0 ? current / base : 1;
+  return fallbackSeries.map((item) => Number((item * lift).toFixed(2)));
+}
+
+function toModelRow(row: SimRow, strategyId?: string, param?: string, tier?: TrafficTierId | null): WhatIfModelRow {
+  return {
+    sku: row.sku,
+    channel_l3: row.channel_l3,
+    category: row.category,
+    status: row.status,
+    baseline_qty: row.baseline_qty,
+    plan_price: row.plan_price,
+    elasticity_coef: row.elasticity?.coefficient ?? null,
+    elasticity_class: row.elasticity?.elasticity_class ?? null,
+    strategy_id: strategyId ?? row.strategy_id,
+    param: param ?? null,
+    traffic_tier: tier ?? null,
+  };
+}
+
+async function pollWhatIfTask(
+  taskId: string,
+  onProgress: (message: string) => void,
+) {
+  for (let attempt = 0; attempt < 120; attempt += 1) {
+    const task = await fetchWhatIfTask(taskId);
+    if (task.progress) onProgress(task.progress);
+    if (task.status === "completed") return task.result?.rows || [];
+    if (task.status === "failed") {
+      throw new Error(task.error_message || "icewash What-if 任务失败");
+    }
+    await new Promise((resolve) => window.setTimeout(resolve, 500));
+  }
+  throw new Error("icewash What-if 任务超时");
 }
 
 type KpiState = {
@@ -234,8 +276,8 @@ function computeKpi(
 }
 
 export default function WhatIfPage() {
-  const [goalVol, setGoalVol] = useState("8");
-  const [goalRev, setGoalRev] = useState("50");
+  const [goalVol, setGoalVol] = useState(DEFAULT_GOAL_VOL);
+  const [goalRev, setGoalRev] = useState(DEFAULT_GOAL_REV);
   const [agentRunning, setAgentRunning] = useState(false);
   const [simRunning, setSimRunning] = useState(false);
   const [agentDoneFlash, setAgentDoneFlash] = useState(false);
@@ -255,6 +297,8 @@ export default function WhatIfPage() {
   const [baselineAmount, setBaselineAmount] = useState(0);
   const [baselinePeriod, setBaselinePeriod] = useState("");
   const [loadingBaseline, setLoadingBaseline] = useState(false);
+  const [simulationReady, setSimulationReady] = useState(false);
+  const [agentReady, setAgentReady] = useState(false);
 
   const [categories, setCategories] = useState<string[]>([]);
   const [allVersions, setAllVersions] = useState<string[]>([]);
@@ -268,6 +312,7 @@ export default function WhatIfPage() {
   const [rightPanelWidth, setRightPanelWidth] = useState(RIGHT_PANEL_DEFAULT);
   const workspaceRef = useRef<HTMLElement>(null);
   const draggingRef = useRef(false);
+  const workflowRunRef = useRef(0);
 
   const draftVersionOptions = useMemo(
     () => versionsForCategory(allVersions, draftCategory),
@@ -357,6 +402,7 @@ export default function WhatIfPage() {
       baseline_amount: number;
       months: string[];
       qty_series: number[];
+      amount_series?: number[];
     },
     period: string | null,
     costMap: Record<string, number>,
@@ -384,7 +430,7 @@ export default function WhatIfPage() {
     const useVol = goals?.vol ?? goalVol;
     const useRev = goals?.rev ?? goalRev;
     setRows(nextRows);
-    setAiRecs(nextRows.map(() => "--"));
+    setAiRecs(nextRows.map(() => ""));
     setStrategyIds(nextRows.map((r) => r.strategy_id));
     setParams(nextRows.map(() => ""));
     setTrafficTiers(nextRows.map(() => null));
@@ -392,6 +438,8 @@ export default function WhatIfPage() {
     setBaselineSeries(qtySeries);
     setBaselineAmount(summary.baseline_amount || 0);
     setBaselinePeriod(period || months[0] || "");
+    setSimulationReady(false);
+    setAgentReady(false);
     setKpi(
       computeKpi(nextRows, useVol, useRev, {
         success: null,
@@ -404,7 +452,10 @@ export default function WhatIfPage() {
   };
 
   const loadBaseline = async (category: string, version: string) => {
+    const runId = ++workflowRunRef.current;
     setLoadingBaseline(true);
+    setSimulationReady(false);
+    setAgentReady(false);
     try {
       let catalog = strategyCatalog;
       if (!catalog.length) {
@@ -416,6 +467,7 @@ export default function WhatIfPage() {
         fetchWhatIfBaseline({ category, version, limit: 200 }),
         loadCostMap(category),
       ]);
+      if (runId !== workflowRunRef.current) return;
       if (!res.ok) {
         setLogs((prev) => [
           ...prev,
@@ -423,24 +475,13 @@ export default function WhatIfPage() {
         ]);
         return;
       }
-      const gVol =
-        Math.ceil(((res.summary?.baseline_qty || 0) / 10000) * 1.1 * 10) / 10;
-      const gRev =
-        Math.ceil(((res.summary?.baseline_amount || 0) / 1e6) * 1.1 * 10) / 10;
-      const volStr = gVol > 0 ? String(gVol) : goalVol;
-      const revStr = gRev > 0 ? String(gRev) : goalRev;
-      if (gVol > 0) setGoalVol(volStr);
-      if (gRev > 0) setGoalRev(revStr);
       applyBaselinePayload(
         res.items || [],
         res.summary,
         res.period,
         costMap,
         catalog,
-        {
-          vol: volStr,
-          rev: revStr,
-        },
+        undefined,
         res.elasticity_hits,
       );
       const qtyWan = ((res.summary?.baseline_qty || 0) / 10000).toFixed(1);
@@ -455,12 +496,13 @@ export default function WhatIfPage() {
         `> 已加载策略目录 ${catalog.length} 条（知识库标准化）`,
       ]);
     } catch (e) {
+      if (runId !== workflowRunRef.current) return;
       setLogs((prev) => [
         ...prev,
         `> 加载失败: ${e instanceof Error ? e.message : "网络错误"}`,
       ]);
     } finally {
-      setLoadingBaseline(false);
+      if (runId === workflowRunRef.current) setLoadingBaseline(false);
     }
   };
 
@@ -480,6 +522,42 @@ export default function WhatIfPage() {
     const sim = kpi.simSeries.length ? kpi.simSeries : base;
     const goalN = Number(goalVol) || 0;
     const goalLine = labels.map(() => goalN);
+    const series: LineSeriesOption[] = [
+      {
+        name: "基线预测",
+        type: "line",
+        data: base,
+        smooth: 0.3,
+        symbol: "circle",
+        symbolSize: 4,
+        lineStyle: { color: "#9ca3af", type: "dashed", width: 2 },
+        itemStyle: { color: "#9ca3af" },
+      },
+    ];
+    if (simulationReady || agentReady) {
+      series.push({
+        name: "当前模拟结果",
+        type: "line",
+        data: sim,
+        smooth: 0.3,
+        symbol: "circle",
+        symbolSize: 4,
+        lineStyle: { color: "#2563eb", width: 2 },
+        itemStyle: { color: "#2563eb" },
+        areaStyle: { color: "rgba(37, 99, 235, 0.1)" },
+      });
+    }
+    if (agentReady && goalN > 0) {
+      series.push({
+        name: "设定目标",
+        type: "line",
+        data: goalLine,
+        smooth: false,
+        symbol: "none",
+        lineStyle: { color: "#10b981", width: 2, type: "dotted" },
+        itemStyle: { color: "#10b981" },
+      });
+    }
     return {
       tooltip: { trigger: "axis" },
       legend: {
@@ -501,40 +579,9 @@ export default function WhatIfPage() {
         splitLine: { lineStyle: { color: "#f1f5f9" } },
         axisLabel: { fontSize: 10, color: "#64748b" },
       },
-      series: [
-        {
-          name: "基线预测",
-          type: "line",
-          data: base,
-          smooth: 0.3,
-          symbol: "circle",
-          symbolSize: 4,
-          lineStyle: { color: "#9ca3af", type: "dashed", width: 2 },
-          itemStyle: { color: "#9ca3af" },
-        },
-        {
-          name: "当前模拟结果",
-          type: "line",
-          data: sim,
-          smooth: 0.3,
-          symbol: "circle",
-          symbolSize: 4,
-          lineStyle: { color: "#2563eb", width: 2 },
-          itemStyle: { color: "#2563eb" },
-          areaStyle: { color: "rgba(37, 99, 235, 0.1)" },
-        },
-        {
-          name: "设定目标",
-          type: "line",
-          data: goalLine,
-          smooth: false,
-          symbol: "none",
-          lineStyle: { color: "#10b981", width: 2, type: "dotted" },
-          itemStyle: { color: "#10b981" },
-        },
-      ],
+      series,
     };
-  }, [chartMonths, baselineSeries, kpi.simSeries, goalVol]);
+  }, [agentReady, baselineSeries, chartMonths, goalVol, kpi.simSeries, simulationReady]);
 
   const progressPct = parseFloat(kpi.progress) || 0;
   const progressOk = progressPct >= 100;
@@ -547,148 +594,155 @@ export default function WhatIfPage() {
 
   const appendLog = (line: string) => setLogs((prev) => [...prev, line]);
 
-  const runAgent = () => {
-    if (agentRunning) return;
+  const resetComputedScenario = (nextRows: SimRow[] = rows) => {
+    const baselineRows = nextRows.map((row) => ({
+      ...row,
+      sim_qty: row.baseline_qty,
+      sim_price: row.plan_price,
+    }));
+    setRows(baselineRows);
+    setSimulationReady(false);
+    setAgentReady(false);
+    setAiRecs(baselineRows.map(() => ""));
+    setKpi(
+      computeKpi(baselineRows, goalVol, goalRev, {
+        success: null,
+        labelMode: "baseline",
+        simSeries: baselineSeries,
+        baselineAmount,
+      }),
+    );
+  };
+
+  const runAgent = async () => {
+    if (agentRunning || simRunning) return;
     if (!rows.length) {
       appendLog("> 请先选择基础预测（品类 + 版本号）");
       return;
     }
+    const goalVolN = Number(goalVol);
+    if (!Number.isFinite(goalVolN) || goalVolN <= 0) {
+      appendLog("> 请先填写大于 0 的销量目标，再运行 AI 推荐");
+      return;
+    }
+    const runId = workflowRunRef.current;
     setAgentRunning(true);
-    setLogs([`> 正在读取经营目标: 销量 ${goalVol}万, 销售额 ${goalRev}M...`]);
-
-    window.setTimeout(() => {
-      const elastHits = rows.filter(
-        (r) => r.elasticity?.ed_source === "elasticity_table",
-      ).length;
-      appendLog(
-        `> 已调取价格弹性表（命中 ${elastHits}/${rows.length}）与策略知识库目录（${strategyCatalog.length} 条）...`,
-      );
-    }, 600);
-
-    window.setTimeout(() => {
-      const goalVolN = Number(goalVol) || 0;
-      const baseVolWan =
-        rows.reduce((s, r) => s + r.baseline_qty, 0) / 10000;
-      const needLift =
-        baseVolWan > 0 ? Math.max(0, (goalVolN - baseVolWan) / baseVolWan) : 0.1;
-
+    appendLog(`> 正在提交 Agent 优化：销量 ${goalVol} 万件，销售额 ${goalRev}M`);
+    const baselineTotal = rows.reduce((sum, row) => sum + row.baseline_qty, 0);
+    try {
+      if (baselineTotal <= 0) throw new Error("基线销量为 0，无法分配优化目标");
+      const modelRows = rows.map((row) => ({
+        ...toModelRow(row, "maintain", undefined, null),
+        target_qty: row.baseline_qty * goalVolN * 10000 / baselineTotal,
+      }));
+      const submitted = await submitWhatIfOptimization(goalVolN * 10000, modelRows);
+      appendLog(`> 优化任务已提交：${submitted.task_id}`);
+      let lastProgress = "";
+      const resultRows = await pollWhatIfTask(submitted.task_id, (message) => {
+        if (message !== lastProgress) {
+          lastProgress = message;
+          appendLog(`> ${message}`);
+        }
+      });
+      if (runId !== workflowRunRef.current) return;
+      if (resultRows.length !== rows.length) throw new Error("模型返回的优化行数与基线不一致");
       const nextIds: string[] = [];
       const nextParams: string[] = [];
       const nextTiers: (TrafficTierId | null)[] = [];
       const nextRecs: string[] = [];
-
-      const nextRows = rows.map((r) => {
-        const opts = r.strategyOptions;
-        const has = (id: string) => opts.some((o) => o.id === id);
-        let sid = "maintain";
-        let param = "";
-        let tier: TrafficTierId | null = null;
-        let rec = "维持现状";
-
-        if (r.status === "淘汰" && has("eol_clearance")) {
-          sid = "eol_clearance";
-          param = "-30%";
-          rec = "加速退市，尾货打包清理（价-30%，量-35%）";
-        } else if (has("price_cut") && needLift > 0.02) {
-          sid = "price_cut";
-          const ed = rowEd(r);
-          param = suggestPriceCutParam(ed, needLift);
-          const edNote =
-            r.elasticity?.ed_source === "elasticity_table"
-              ? `Ed=${ed.toFixed(2)}`
-              : `Ed≈${ed.toFixed(2)}（未命中弹性表）`;
-          rec = `降价 ${param}（${edNote}），按弹性测算补量`;
-        } else if (has("trade_in") && needLift > 0.05) {
-          sid = "trade_in";
-          param = baselineCategory === "洗衣机" ? "+18%" : "+30%";
-          rec = `以旧换新 ${param}，拉动转化`;
-        } else if (has("traffic_boost")) {
-          sid = "traffic_boost";
-          tier = DEFAULT_TRAFFIC_TIER;
-          param =
-            TRAFFIC_TIERS.find((t) => t.id === tier)?.param || "+12%";
-          rec = `加大投流·中等档，预计销量 ${param}`;
-        } else if (has("prelaunch")) {
-          sid = "prelaunch";
-          rec = "提前铺货，抢占档期（+12%）";
-        }
-
+      const nextRows = rows.map((row, index) => {
+        const result = resultRows[index] as WhatIfModelResultRow;
+        const sid = result.strategy_id || "maintain";
+        const param = result.param || "";
+        const tier = (result.traffic_tier || null) as TrafficTierId | null;
         nextIds.push(sid);
         nextParams.push(param);
         nextTiers.push(tier);
-        nextRecs.push(rec);
-        const sim = applySim(r, sid, param, tier);
+        nextRecs.push(
+          result.strategy_name
+            ? result.effect_note && result.effect_note !== "不变"
+              ? `${result.strategy_name}：${result.effect_note}`
+              : result.strategy_name
+            : result.effect_note || "维持现状",
+        );
         return {
-          ...r,
+          ...row,
           strategy_id: sid,
           traffic_tier: tier,
-          sim_qty: sim.sim_qty,
-          sim_price: sim.sim_price,
+          sim_qty: Number(result.sim_qty ?? row.baseline_qty),
+          sim_price: Number(result.sim_price ?? row.plan_price ?? 0),
         };
       });
-
-      const lift =
-        nextRows.reduce((s, r) => s + r.sim_qty, 0) /
-        Math.max(
-          1,
-          rows.reduce((s, r) => s + r.baseline_qty, 0),
-        );
-      const simSeries = baselineSeries.map((v) =>
-        Number((v * lift).toFixed(2)),
-      );
+      const simSeries = seriesFromRows(nextRows, chartMonths, "sim_qty", baselineSeries);
       setStrategyIds(nextIds);
       setParams(nextParams);
       setTrafficTiers(nextTiers);
       setAiRecs(nextRecs);
       setRows(nextRows);
-      setKpi(
-        computeKpi(nextRows, goalVol, goalRev, {
-          success: true,
-          labelMode: "sim",
-          simSeries,
-          baselineAmount,
-        }),
-      );
-      appendLog(
-        "> 策略生成完毕。已按型号弹性与知识库目录测算；可手动微调档位/参数后再次运行模拟。",
-      );
-      setAgentRunning(false);
+      setKpi(computeKpi(nextRows, goalVol, goalRev, {
+        success: null,
+        labelMode: "sim",
+        simSeries,
+        baselineAmount,
+      }));
+      setSimulationReady(true);
+      setAgentReady(true);
+      appendLog("> Agent 优化完成：模型已逐行枚举候选策略并返回最接近目标的结果。");
       setAgentDoneFlash(true);
       window.setTimeout(() => setAgentDoneFlash(false), 2000);
-    }, 1600);
+    } catch (e) {
+      if (runId === workflowRunRef.current) {
+        appendLog(`> Agent 优化失败：${e instanceof Error ? e.message : "网络错误"}`);
+      }
+    } finally {
+      if (runId === workflowRunRef.current) setAgentRunning(false);
+    }
   };
 
-  const runSimulation = () => {
-    if (simRunning) return;
+  const runSimulation = async () => {
+    if (simRunning || agentRunning) return;
     if (!rows.length) {
       appendLog("> 请先选择基础预测（品类 + 版本号）");
       return;
     }
+    const runId = workflowRunRef.current;
     setSimRunning(true);
-    window.setTimeout(() => {
-      const nextRows = rows.map((r, i) => {
-        const sid = strategyIds[i] || r.strategy_id || "maintain";
-        const param = params[i] || "";
-        const tier = trafficTiers[i] ?? r.traffic_tier;
-        const sim = applySim(r, sid, param, tier);
+    appendLog("> 正在读取矩阵中的 custom strategy 并提交 icewash 模拟任务…");
+    try {
+      const modelRows = rows.map((row, index) =>
+        toModelRow(
+          row,
+          strategyIds[index] || row.strategy_id || "maintain",
+          params[index] ?? "",
+          trafficTiers[index] ?? row.traffic_tier,
+        ),
+      );
+      const submitted = await submitWhatIfSimulation(modelRows);
+      appendLog(`> 模拟任务已提交：${submitted.task_id}`);
+      let lastProgress = "";
+      const resultRows = await pollWhatIfTask(submitted.task_id, (message) => {
+        if (message !== lastProgress) {
+          lastProgress = message;
+          appendLog(`> ${message}`);
+        }
+      });
+      if (runId !== workflowRunRef.current) return;
+      if (resultRows.length !== rows.length) throw new Error("模型返回的模拟行数与基线不一致");
+      const nextRows = rows.map((row, index) => {
+        const result = resultRows[index] as WhatIfModelResultRow;
         return {
-          ...r,
-          strategy_id: sid,
-          traffic_tier: tier,
-          sim_qty: sim.sim_qty,
-          sim_price: sim.sim_price,
+          ...row,
+          strategy_id: result.strategy_id || strategyIds[index] || row.strategy_id,
+          traffic_tier: (result.traffic_tier || trafficTiers[index] || null) as TrafficTierId | null,
+          sim_qty: Number(result.sim_qty ?? row.baseline_qty),
+          sim_price: Number(result.sim_price ?? row.plan_price ?? 0),
         };
       });
-      const lift =
-        nextRows.reduce((s, r) => s + r.sim_qty, 0) /
-        Math.max(
-          1,
-          rows.reduce((s, r) => s + r.baseline_qty, 0),
-        );
-      const simSeries = baselineSeries.map((v) =>
-        Number((v * lift).toFixed(2)),
-      );
+      const simSeries = seriesFromRows(nextRows, chartMonths, "sim_qty", baselineSeries);
       setRows(nextRows);
+      setAiRecs(nextRows.map(() => ""));
+      setAgentReady(false);
+      setSimulationReady(true);
       const nextKpi = computeKpi(nextRows, goalVol, goalRev, {
         success: null,
         labelMode: "sim",
@@ -696,13 +750,16 @@ export default function WhatIfPage() {
         baselineAmount,
       });
       setKpi(nextKpi);
-      appendLog(
-        `> [手工模拟] 按策略重算；销售额 ${nextKpi.rev}M，综合毛利率 ${nextKpi.margin}。`,
-      );
-      setSimRunning(false);
+      appendLog(`> 模拟预测完成：销售额 ${nextKpi.rev}M，综合毛利率 ${nextKpi.margin}%。`);
       setSimDoneFlash(true);
       window.setTimeout(() => setSimDoneFlash(false), 2000);
-    }, 700);
+    } catch (e) {
+      if (runId === workflowRunRef.current) {
+        appendLog(`> 沙盘模拟失败：${e instanceof Error ? e.message : "网络错误"}`);
+      }
+    } finally {
+      if (runId === workflowRunRef.current) setSimRunning(false);
+    }
   };
 
   const onStrategyChange = (i: number, sid: string) => {
@@ -722,9 +779,9 @@ export default function WhatIfPage() {
     }
     setParams(nextParams);
     setTrafficTiers(nextTiers);
-    setRows((prev) =>
-      prev.map((r, idx) =>
-        idx === i ? { ...r, strategy_id: sid, traffic_tier: nextTiers[i] } : r,
+    resetComputedScenario(
+      rows.map((row, idx) =>
+        idx === i ? { ...row, strategy_id: sid, traffic_tier: nextTiers[i] } : row,
       ),
     );
   };
@@ -737,9 +794,16 @@ export default function WhatIfPage() {
     const nextParams = [...params];
     nextParams[i] = param;
     setParams(nextParams);
-    setRows((prev) =>
-      prev.map((r, idx) => (idx === i ? { ...r, traffic_tier: tier } : r)),
+    resetComputedScenario(
+      rows.map((row, idx) => (idx === i ? { ...row, traffic_tier: tier } : row)),
     );
+  };
+
+  const onParamChange = (i: number, param: string) => {
+    const nextParams = [...params];
+    nextParams[i] = param;
+    setParams(nextParams);
+    resetComputedScenario();
   };
 
   return (
@@ -798,8 +862,10 @@ export default function WhatIfPage() {
             </button>
           )}
           <span className="text-gray-300">→</span>
+          <span className="text-sm font-bold text-gray-600">2. 自定义经营策略</span>
+          <span className="text-gray-300">→</span>
           <div className="flex items-center gap-2 rounded border border-blue-100 bg-blue-50 px-3 py-1.5">
-            <span className="text-sm font-bold text-blue-800">2. 设定经营目标:</span>
+            <span className="text-sm font-bold text-blue-800">3. 设定经营目标:</span>
             <span className="text-xs text-gray-600">销量 ≥</span>
             <input
               value={goalVol}
@@ -813,6 +879,16 @@ export default function WhatIfPage() {
               className="w-16 border-b border-blue-300 bg-transparent text-center text-sm font-bold text-blue-700 outline-none"
             />
             <span className="text-xs text-gray-600">百万</span>
+            <button
+              type="button"
+              onClick={() => {
+                setGoalVol("");
+                setGoalRev("");
+              }}
+              className="ml-1 rounded border border-blue-200 bg-white px-2 py-1 text-xs text-blue-700 transition hover:bg-blue-100"
+            >
+              重置
+            </button>
           </div>
         </div>
 
@@ -821,7 +897,7 @@ export default function WhatIfPage() {
           <button
             type="button"
             onClick={runAgent}
-            disabled={agentRunning || loadingBaseline}
+            disabled={agentRunning || simRunning || loadingBaseline}
             className={`flex cursor-pointer items-center gap-2 rounded bg-purple-600 px-5 py-2 text-sm font-bold text-white shadow-md transition hover:bg-purple-700 disabled:cursor-wait ${
               agentRunning ? "animate-pulse shadow-[0_0_20px_#a78bfa]" : ""
             }`}
@@ -842,7 +918,7 @@ export default function WhatIfPage() {
           <button
             type="button"
             onClick={runSimulation}
-            disabled={simRunning || loadingBaseline}
+            disabled={simRunning || agentRunning || loadingBaseline}
             className="flex cursor-pointer items-center gap-2 rounded bg-blue-600 px-5 py-2 text-sm font-bold text-white shadow-md transition hover:bg-blue-700 disabled:cursor-wait"
           >
             {simRunning ? (
@@ -861,7 +937,7 @@ export default function WhatIfPage() {
         </div>
       </section>
 
-      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden p-4">
+      <main className="flex min-h-0 flex-1 flex-col gap-4 overflow-auto p-4">
         <section className="grid shrink-0 grid-cols-2 gap-4 lg:grid-cols-4">
           <div
             className={`rounded-lg border-l-4 bg-white p-3 shadow transition-colors ${cardBorder}`}
@@ -937,7 +1013,7 @@ export default function WhatIfPage() {
 
         <section
           ref={workspaceRef}
-          className="flex min-h-0 flex-1 overflow-hidden"
+          className="flex min-h-[420px] min-w-0 flex-1 overflow-hidden"
         >
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-lg bg-white shadow">
             <div className="flex shrink-0 items-center justify-between border-b bg-gray-50 p-3">
@@ -984,7 +1060,10 @@ export default function WhatIfPage() {
                       const tone = statusTone(sku.status);
                       const { simAmount, grossProfit } = rowMetrics(sku);
                       return (
-                        <tr key={sku.sku} className="transition hover:bg-gray-50">
+                        <tr
+                          key={`${sku.sku}-${sku.channel_l3 || ""}-${sku.period || ""}-${i}`}
+                          className="transition hover:bg-gray-50"
+                        >
                           <td className="p-2">
                             <div className="font-medium text-gray-800">{sku.sku}</div>
                             <div
@@ -1024,7 +1103,7 @@ export default function WhatIfPage() {
                           </td>
                           <td className="bg-purple-50/50 p-2">
                             <div className="text-xs font-medium text-purple-700">
-                              {aiRecs[i] || "--"}
+                              {aiRecs[i] || ""}
                             </div>
                           </td>
                           <td className="border-l border-blue-50 bg-blue-50/30 p-2">
@@ -1060,11 +1139,7 @@ export default function WhatIfPage() {
                             ) : null}
                             <input
                               value={params[i] || ""}
-                              onChange={(e) => {
-                                const next = [...params];
-                                next[i] = e.target.value;
-                                setParams(next);
-                              }}
+                              onChange={(e) => onParamChange(i, e.target.value)}
                               placeholder={
                                 sku.strategyOptions.find(
                                   (o) => o.id === (strategyIds[i] || sku.strategy_id),
@@ -1089,31 +1164,6 @@ export default function WhatIfPage() {
               )}
             </div>
 
-            <div className="h-28 shrink-0 overflow-auto rounded-b-lg bg-gray-900 p-3 font-mono text-xs text-gray-300">
-              <div className="mb-1 flex items-center gap-1 font-bold text-purple-400">
-                <Terminal size={12} /> 预测模型推导日志 (Chain of Thought)...
-              </div>
-              <div className="space-y-1">
-                {logs.map((line, i) => (
-                  <div
-                    key={`${i}-${line.slice(0, 12)}`}
-                    className={
-                      line.includes("缺口")
-                        ? "text-green-400"
-                        : line.includes("策略生成")
-                          ? "text-blue-300"
-                          : line.includes("手工模拟")
-                            ? "text-yellow-400"
-                            : line.includes("失败")
-                              ? "text-red-400"
-                              : ""
-                    }
-                  >
-                    {line}
-                  </div>
-                ))}
-              </div>
-            </div>
           </div>
 
           <div
@@ -1165,6 +1215,29 @@ export default function WhatIfPage() {
                 <span>目标({goalRev}M)</span>
               </div>
             </div>
+          </div>
+        </section>
+        <section className="h-28 shrink-0 overflow-auto rounded-lg bg-gray-900 p-3 font-mono text-xs text-gray-300 shadow">
+          <div className="mb-1 flex items-center gap-1 font-bold text-purple-400">
+            <Terminal size={12} /> 预测模型推导日志
+          </div>
+          <div className="space-y-1">
+            {logs.map((line, i) => (
+              <div
+                key={`${i}-${line.slice(0, 12)}`}
+                className={
+                  line.includes("目标") || line.includes("完成")
+                    ? "text-green-400"
+                    : line.includes("任务") || line.includes("提交")
+                      ? "text-blue-300"
+                      : line.includes("失败")
+                        ? "text-red-400"
+                        : ""
+                }
+              >
+                {line}
+              </div>
+            ))}
           </div>
         </section>
       </main>

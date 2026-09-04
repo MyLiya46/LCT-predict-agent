@@ -60,8 +60,7 @@ export function strategiesForStatusGroup(
 }
 
 export function defaultStrategyId(status: string): string {
-  if (status === "淘汰") return "maintain";
-  if (status === "新品") return "plan_launch";
+  void status;
   return "maintain";
 }
 

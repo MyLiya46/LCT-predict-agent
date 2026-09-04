@@ -175,6 +175,20 @@ async def collect_turn(
                 if item is None:
                     continue
                 event, data, _seq = item
+                if event == "message.delta":
+                    delta = str(data.get("text") or "")
+                    if delta and on_status is not None:
+                        maybe = on_status(
+                            {
+                                "stage": "answering",
+                                "text": delta,
+                                "delta": delta,
+                                "steps": list(steps),
+                            }
+                        )
+                        if maybe is not None:
+                            await maybe
+                    continue
                 status = native_event_to_status(event, data, steps)
                 if status is not None:
                     handle.status_events.append(status)

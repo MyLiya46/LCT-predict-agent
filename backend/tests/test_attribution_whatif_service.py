@@ -97,3 +97,7 @@ async def test_baseline_is_pg_db_source_and_counts_elasticity(session):
     assert result["items"]
     assert result["elasticity_hits"] == 2
     assert result["items"][0]["plan_price"] == 10
+    assert result["summary"]["months"] == ["2026-09", "2026-10"]
+    assert result["summary"]["qty_series"] == [160.0, 110.0]
+    assert result["summary"]["amount_series"] == [1100.0, 0.0]
+    assert result["summary"]["baseline_qty"] == 270.0

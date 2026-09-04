@@ -58,7 +58,13 @@ echo "==> [1/6] Docker 引擎"
 echo "   OK"
 
 echo "==> [2/6] 基础容器（PG / mock 销售服务 / 冰洗模型）"
-ICEWASH_MODEL_MOUNT="$(pwd)/services/icewash-model:/app"
+ICEWASH_MODEL_HOST_DIR="$(pwd)/services/icewash-model"
+if uname -s | grep -qiE 'MINGW|MSYS|CYGWIN'; then
+  # Git Bash 会把容器内的 /app/... 参数误转成 Git 安装目录下的 Windows 路径。
+  # 挂载源路径则要保留为 Docker Desktop 可识别的 Windows 路径。
+  ICEWASH_MODEL_HOST_DIR="$(cygpath -m "$ICEWASH_MODEL_HOST_DIR")"
+fi
+ICEWASH_MODEL_MOUNT="${ICEWASH_MODEL_HOST_DIR}:/app"
 for c in LCT-predict-agent-pg mock-sales; do
   if "$DOCKER_BIN" ps --format '{{.Names}}' | grep -qx "$c"; then
     echo "   $c 运行中"
@@ -103,7 +109,7 @@ if [ "$MODEL_RECREATE" -eq 1 ]; then
     "$DOCKER_BIN" rm -f icewash-model >/dev/null
     echo "   已移除旧 icewash-model 容器"
   fi
-  "$DOCKER_BIN" run -d --name icewash-model \
+  MSYS_NO_PATHCONV=1 "$DOCKER_BIN" run -d --name icewash-model \
     --add-host host.docker.internal:host-gateway \
     -e "BACKEND_PG_URL=$MODEL_PG_URL" \
     -p 8001:8001 \

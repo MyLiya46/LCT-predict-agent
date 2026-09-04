@@ -228,7 +228,10 @@ async def sku_detail(
             continue
         impacts[str(row.attr_type or "其他未分类")] += _number(row.impact)
     sorted_impacts = sorted(impacts.items(), key=lambda item: abs(item[1]), reverse=True)
-    type_impacts = [{"type": key, "impact": round(value, 1)} for key, value in sorted_impacts]
+    # Keep the API list in the model's source order.  Driver ranking remains
+    # magnitude-based below, while callers can compare the typed factors with
+    # the original attribution rows deterministically.
+    type_impacts = [{"type": key, "impact": round(value, 1)} for key, value in impacts.items()]
     payload = first.payload or {}
     channel_l1 = getattr(first, "channel_l1", None) or _payload_value(payload, "1级渠道", "channel_l1")
     channel_l3 = getattr(first, "channel_l3", None) or _payload_value(payload, "3级渠道", "channel_l3")

@@ -18,6 +18,7 @@ interface AppState {
   viewingMessageId: string | null;
   params: ChatParams;
   loading: boolean;
+  streamingReply: string;
   stage: string | null;
   processSteps: string[];
   mcpOk: boolean | null;
@@ -32,6 +33,7 @@ interface AppState {
   newSession: () => void;
   renameSession: (id: string, title: string) => Promise<void>;
   togglePinSession: (id: string) => Promise<void>;
+  deleteSession: (id: string) => Promise<void>;
   /** 将右侧工作区回滚到某条助手回复的结果 */
   viewMessageWorkspace: (messageId: string) => void;
   /** 发送用户消息；query 原样传给 Agent（不做筛选条件拼接） */
@@ -48,6 +50,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   viewingMessageId: null,
   params: defaultParams,
   loading: false,
+  streamingReply: "",
   stage: null,
   processSteps: [],
   mcpOk: null,
@@ -85,7 +88,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       role: m.role as ChatMessage["role"],
       content: m.content,
       envelope: m.result_envelope || null,
-      processSteps: m.result_envelope?.process_steps || undefined,
+      processSteps: m.result_envelope?.process_steps?.slice(-40) || undefined,
       createdAt: m.created_at,
     }));
     const lastWorkspace = [...messages].reverse().find(
@@ -107,6 +110,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       envelope: null,
       viewingMessageId: null,
       error: null,
+      streamingReply: "",
       stage: null,
       processSteps: [],
     }),
@@ -123,6 +127,25 @@ export const useAppStore = create<AppState>((set, get) => ({
     const nextPinned = !(current?.pinned);
     await api.updateSession(id, { pinned: nextPinned });
     await get().refreshSessions();
+  },
+
+  deleteSession: async (id) => {
+    await api.deleteSession(id);
+    if (get().sessionId === id) {
+      set((s) => ({
+        sessions: s.sessions.filter((item) => item.id !== id),
+        sessionId: null,
+        messages: [],
+        envelope: null,
+        viewingMessageId: null,
+        error: null,
+        streamingReply: "",
+        stage: null,
+        processSteps: [],
+      }));
+      return;
+    }
+    set((s) => ({ sessions: s.sessions.filter((item) => item.id !== id) }));
   },
 
   viewMessageWorkspace: (messageId) => {
@@ -155,6 +178,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const nowIso = new Date().toISOString();
     set((s) => ({
       loading: true,
+      streamingReply: "",
       stage: "思考",
       processSteps: ["正在思考…"],
       error: null,
@@ -180,6 +204,12 @@ export const useAppStore = create<AppState>((set, get) => ({
             processSteps: steps.slice(-40),
           });
         },
+        (delta) => {
+          set((s) => ({
+            streamingReply: s.streamingReply + delta,
+            stage: "正在生成回答…",
+          }));
+        },
         {
           oa: token.oa,
           backupAccessToken: token.backupAccessToken,
@@ -190,12 +220,14 @@ export const useAppStore = create<AppState>((set, get) => ({
         res.update_workspace !== false && res.envelope?.update_workspace !== false;
       const steps =
         (res.steps && res.steps.length ? res.steps : get().processSteps).slice(-40);
+      const envelopeSteps = (res.envelope?.process_steps?.length
+        ? res.envelope.process_steps
+        : steps
+      ).slice(-40);
       const envelope = res.envelope
         ? {
             ...res.envelope,
-            process_steps: res.envelope.process_steps?.length
-              ? res.envelope.process_steps
-              : steps,
+            process_steps: envelopeSteps,
           }
         : res.envelope;
       const canView = hasWorkbenchContent(envelope);
@@ -216,6 +248,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           },
         ],
         loading: false,
+        streamingReply: "",
         stage: null,
         processSteps: [],
       }));
@@ -223,6 +256,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (e) {
       set({
         loading: false,
+        streamingReply: "",
         stage: null,
         processSteps: [],
         error: e instanceof Error ? e.message : "请求失败",

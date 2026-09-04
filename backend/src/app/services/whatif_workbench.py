@@ -18,6 +18,28 @@ def _price_from_payload(payload: dict[str, Any] | None) -> float | None:
         return None
 
 
+def _elasticity_info(coefficient: float | None, elasticity_class: str | None) -> dict[str, Any]:
+    """Expose the same effective Ed fields consumed by the icewash engine."""
+    label = (elasticity_class or "").strip()
+    if coefficient is not None and coefficient > 0:
+        ed = coefficient
+    elif "价格敏感" in label or label == "强敏感":
+        ed = 1.5
+    elif "弱敏感" in label:
+        ed = 0.8
+    elif "不敏感" in label or "钝感" in label:
+        ed = 0.6
+    else:
+        ed = 1.0
+    return {
+        "coefficient": coefficient,
+        "volatility_class": "",
+        "elasticity_class": label,
+        "ed": round(ed, 6),
+        "ed_source": "elasticity_table" if coefficient is not None or label else "fallback",
+    }
+
+
 async def _dataset_rows(session: AsyncSession, dataset: str, category: str, version: str | None = None):
     clauses = [WorkbenchDatasetRow.dataset == dataset, WorkbenchDatasetRow.category == category]
     if version:
@@ -92,7 +114,7 @@ async def load_baseline(
         coefficient, elasticity_class = elasticities.get(sku, (None, None))
         if coefficient is not None or elasticity_class is not None:
             elasticity_hits += 1
-        elasticity = {"coef": coefficient, "class": elasticity_class}
+        elasticity = _elasticity_info(coefficient, elasticity_class)
         items.append({
             "sku": sku,
             "status": row.status,
@@ -113,6 +135,14 @@ async def load_baseline(
     total_qty = sum(float(item["baseline_qty"]) for item in items)
     total_amount = sum(float(item["baseline_amount"]) for item in items)
     months = sorted({str(item["period"]) for item in items if item.get("period")})
+    qty_by_month = {month: 0.0 for month in months}
+    amount_by_month = {month: 0.0 for month in months}
+    for item in items:
+        month = str(item.get("period") or "")
+        if month not in qty_by_month:
+            continue
+        qty_by_month[month] += float(item["baseline_qty"])
+        amount_by_month[month] += float(item["baseline_amount"])
     return {
         "ok": True,
         "source": "db",
@@ -121,7 +151,14 @@ async def load_baseline(
         "period": period,
         "months": months,
         "items": items,
-        "summary": {"baseline_qty": round(total_qty, 6), "baseline_amount": round(total_amount, 6), "item_count": len(items)},
+        "summary": {
+            "baseline_qty": round(total_qty, 6),
+            "baseline_amount": round(total_amount, 6),
+            "item_count": len(items),
+            "months": months,
+            "qty_series": [round(qty_by_month[month], 6) for month in months],
+            "amount_series": [round(amount_by_month[month], 6) for month in months],
+        },
         "total": len(items),
         "elasticity_hits": elasticity_hits,
     }

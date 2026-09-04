@@ -24,6 +24,7 @@ export function AppShell() {
   const logout = useAuthStore((s) => s.logout);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const isChat = location.pathname.startsWith("/chat");
+  const statusLabel = mcpMode === "provider" ? "Chat provider" : mcpMode === "live" ? "Agent live" : "Agent";
 
   useEffect(() => {
     void checkAgent();
@@ -75,10 +76,10 @@ export function AppShell() {
             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 ${
               mcpOk ? "bg-emerald-50 text-accent" : "bg-rose-50 text-destructive"
             }`}
-            title="Agent Chat API 连接状态"
+            title="聊天服务连接状态"
           >
             <PlugsConnected size={14} aria-hidden />
-            Agent {mcpMode}
+            {statusLabel}
             {mcpOk === null ? " · 检测中" : mcpOk ? " · 已连接" : " · 异常"}
           </span>
           <span

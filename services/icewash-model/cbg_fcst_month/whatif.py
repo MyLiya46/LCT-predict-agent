@@ -15,8 +15,6 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
-import numpy as np
-
 # 加大投流二级档位（align ref）
 TRAFFIC_TIERS: List[Dict[str, Any]] = [
     {"id": "conservative", "label": "保守", "param": "+5%", "lift": 0.05},
@@ -128,6 +126,33 @@ STATUS_GROUP_LABELS = {
 PRICE_CUT_CAP = 0.8  # 降价促销提量上限（对齐 ref：min(0.8, Ed×|ΔP|)）
 
 
+def _strategy_definition(strategy_id: str) -> Optional[Dict[str, Any]]:
+    return next((strategy for strategy in STRATEGY_CATALOG if strategy["id"] == strategy_id), None)
+
+
+def effective_strategy_param(strategy_id: str, param: Optional[str]) -> str:
+    """Resolve the parameter actually used by a strategy calculation."""
+    strategy = _strategy_definition(strategy_id)
+    if strategy is None:
+        return str(param or "").strip()
+    if strategy["param_kind"] == "none":
+        return ""
+    value = str(param or "").strip()
+    if strategy_id == "traffic_boost" and not value:
+        # A selected traffic tier is itself the parameter source.  Do not
+        # replace an aggressive/conservative tier with the catalog's medium
+        # default merely because the caller omitted the text representation.
+        return ""
+    return value or str(strategy.get("default_param") or "")
+
+
+def effective_traffic_tier(strategy_id: str, traffic_tier: Optional[str]) -> Optional[str]:
+    if strategy_id != "traffic_boost":
+        return traffic_tier
+    valid_ids = {str(item["id"]) for item in TRAFFIC_TIERS}
+    return traffic_tier if traffic_tier in valid_ids else DEFAULT_TRAFFIC_TIER
+
+
 def parse_param_pct(raw: Optional[str]) -> Optional[float]:
     """解析参数百分比字符串为小数（'+12%' → 0.12，'-8%' → -0.08）。"""
     if raw is None:
@@ -203,9 +228,11 @@ def simulate_row(
     effect_note = "不变"
 
     sid = strategy_id
+    used_param = effective_strategy_param(sid, param)
+    used_tier = effective_traffic_tier(sid, traffic_tier)
 
     if sid == "price_cut":
-        pct = parse_param_pct(param) or -0.08
+        pct = parse_param_pct(used_param) or -0.08
         if pct > 0:
             pct = -abs(pct)
         sim_price = base_price * (1 + pct)
@@ -213,29 +240,31 @@ def simulate_row(
         sim_qty = base_qty * (1 + lift)
         effect_note = f"降价 {pct*100:.1f}% · Ed={ed:.2f} · 量 +{lift*100:.1f}%"
     elif sid == "eol_clearance":
-        pct = parse_param_pct(param) or -0.30
+        pct = parse_param_pct(used_param) or -0.30
         if pct > 0:
             pct = -abs(pct)
         sim_price = base_price * (1 + pct)
         sim_qty = base_qty * 0.65
         effect_note = f"清仓折扣 {pct*100:.1f}% · 量 -35%"
     elif sid == "traffic_boost":
-        tier = next((t for t in TRAFFIC_TIERS if t["id"] == traffic_tier), None)
+        tier = next((t for t in TRAFFIC_TIERS if t["id"] == used_tier), None)
         if tier is None:
             tier = next(t for t in TRAFFIC_TIERS if t["id"] == DEFAULT_TRAFFIC_TIER)
-        lift = parse_param_pct(param) if parse_param_pct(param) is not None else tier["lift"]
+        if not used_param:
+            used_param = str(tier["param"])
+        lift = parse_param_pct(used_param) if parse_param_pct(used_param) is not None else tier["lift"]
         sim_qty = base_qty * (1 + max(0.0, lift))
         effect_note = f"投流档位 {tier['label']} · 量 +{lift*100:.1f}%"
     elif sid == "trade_in":
-        lift = parse_param_pct(param) if parse_param_pct(param) is not None else 0.30
+        lift = parse_param_pct(used_param) if parse_param_pct(used_param) is not None else 0.30
         sim_qty = base_qty * (1 + max(0.0, lift))
         effect_note = f"以旧换新 · 量 +{lift*100:.1f}%"
     elif sid == "gift":
-        lift = parse_param_pct(param) if parse_param_pct(param) is not None else 0.06
+        lift = parse_param_pct(used_param) if parse_param_pct(used_param) is not None else 0.06
         sim_qty = base_qty * (1 + max(0.0, lift))
         effect_note = f"赠品促销 · 量 +{lift*100:.1f}%"
     elif sid == "bundle":
-        atv = parse_param_pct(param) if parse_param_pct(param) is not None else 0.15
+        atv = parse_param_pct(used_param) if parse_param_pct(used_param) is not None else 0.15
         sim_price = base_price * (1 + max(0.0, atv))
         sim_qty = base_qty * 1.10
         effect_note = f"套购 · 量 +10% · 客单 +{atv*100:.1f}%"
@@ -244,7 +273,13 @@ def simulate_row(
         effect_note = "提前铺货 · 量 +12%"
     # maintain 及未知策略：不变
 
-    return {"sim_qty": round(float(sim_qty), 2), "sim_price": round(float(sim_price), 2), "effect_note": effect_note}
+    return {
+        "sim_qty": round(float(sim_qty), 2),
+        "sim_price": round(float(sim_price), 2),
+        "effect_note": effect_note,
+        "param": used_param or None,
+        "traffic_tier": used_tier,
+    }
 
 
 def optimize_row(

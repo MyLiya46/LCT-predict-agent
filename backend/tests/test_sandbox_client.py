@@ -4,7 +4,7 @@ import httpx
 import pytest
 import respx
 
-from app.sandbox.client import execute, ToolExecutionResult
+from app.sandbox.client import execute
 
 EXEC = {
     "kind": "sandbox",
@@ -64,3 +64,33 @@ async def test_timeout_normalization():
     assert result.ok is False
     assert result.error_code == "TIMEOUT"
     assert result.retryable is True
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_invalid_json_is_normalized_without_secret_leak():
+    respx.post("http://127.0.0.1:9000/run").mock(
+        return_value=httpx.Response(200, text="not-json")
+    )
+    result = await execute(EXEC, CREDS, {}, "req-5")
+    assert result.ok is False
+    assert result.error_code == "SANDBOX"
+    assert result.retryable is True
+    assert "secret_token" not in result.message
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_business_error_redacts_datasource_secret():
+    respx.post("http://127.0.0.1:9000/run").mock(
+        return_value=httpx.Response(
+            200,
+            json={
+                "ok": False,
+                "error": {"code": "UPSTREAM", "message": "failed secret_token", "retryable": False},
+            },
+        )
+    )
+    result = await execute(EXEC, CREDS, {}, "req-6")
+    assert result.error_code == "UPSTREAM"
+    assert "secret_token" not in result.message

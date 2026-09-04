@@ -97,6 +97,11 @@ async def rename_conversation(
     conv = await _get_owned_conversation(session, conversation_id, owner_id)
     conv.title = title
     await session.commit()
+    # updated_at is maintained by the database and may be expired after the
+    # UPDATE even when the session factory disables expire_on_commit.  Refresh
+    # before the façade serializes the returned ORM object; async attribute
+    # lazy-loading here would otherwise raise MissingGreenlet.
+    await session.refresh(conv)
     await write_audit(
         actor_id=owner_id, action=audit_consts.CHAT_CONVERSATION_UPDATE,
         target_type="conversation", target_id=conversation_id, detail={"title": title},
@@ -112,12 +117,15 @@ async def pin_conversation(
     conv.pinned = pinned
     conv.pinned_at = datetime.now(timezone.utc) if pinned else None
     await session.commit()
+    # Keep server-maintained timestamps loaded for the API response.
+    await session.refresh(conv)
     return conv
 
 
 async def delete_conversation(session: AsyncSession, conversation_id: str, owner_id: str) -> None:
     """级联软删（conversation + message/event/checkpoint 置 deleted）。"""
     conv = await _get_owned_conversation(session, conversation_id, owner_id)
+    title = conv.title
     conv.status = "deleted"
     conv.deleted_at = datetime.now(timezone.utc)
     await session.execute(update(Message).where(Message.conversation_id == conversation_id).values(status="failed"))
@@ -125,7 +133,7 @@ async def delete_conversation(session: AsyncSession, conversation_id: str, owner
     await write_audit(
         actor_id=owner_id, action=audit_consts.CHAT_CONVERSATION_DELETE,
         target_type="conversation", target_id=conversation_id,
-        detail={"title": conv.title},
+        detail={"title": title},
     )
 
 
@@ -412,7 +420,7 @@ async def get_message_trace(
     msg = await session.get(Message, message_id)
     if msg is None or str(msg.conversation_id) != conversation_id:
         raise NotFoundError("消息不存在")
-    if str(msg.trace_id):
+    if msg.trace_id:
         return await get_trace(session, conversation_id=conversation_id, message_id=message_id, owner_id=owner_id)
     return {"trace_id": None, "status": msg.status, "events": [], "conversation_id": conversation_id, "message_id": message_id}
 

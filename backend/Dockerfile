@@ -13,13 +13,17 @@ WORKDIR /app
 
 # 先拷贝依赖清单以利用构建缓存
 COPY pyproject.toml uv.lock* ./
-RUN uv sync --frozen --no-dev --no-install-project 2>/dev/null || true
+RUN uv sync --frozen --no-dev --no-install-project
 
 # 拷贝源码
 COPY src/ src/
 COPY alembic/ alembic/
 COPY seed/ seed/
 COPY alembic.ini .
+
+# Install the application after its source has been copied.  Do not mask a
+# dependency or packaging failure: a green image build must be runnable.
+RUN uv sync --frozen --no-dev
 
 ENV PATH="/app/.venv/bin:$PATH"
 

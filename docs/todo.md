@@ -27,6 +27,12 @@
 | 13 | T13 | 管理端六页 React 新建（admin-pages-react） | T02、T11、T12 | completed | - | [plan](plans/T13-admin-pages-react-2026-09-01.md) |
 | 14 | T14 | icewash 栈联调自检（icewash-stack-check） | T03 | completed | - | [plan](plans/T14-icewash-stack-check-2026-09-01.md) |
 | 15 | T15 | 端到端验收（e2e-acceptance） | T04、T05、T06、T10、T11、T12、T13、T14 | completed | - | [plan](plans/T15-e2e-acceptance-2026-09-01.md) |
+| 16 | T16 | LLM 流式、沙箱与追溯联调修复（llm-stream-sandbox-trace-fix） | T15 | completed | - | [plan](plans/T16-llm-stream-sandbox-trace-fix-2026-09-03.md) |
+| 17 | T17 | 聊天会话与交互体验修复（chat-ux-session-auth-fix） | T16 | completed | - | [plan](plans/T17-chat-ux-session-auth-fix-2026-09-03.md) |
+| 18 | T18 | LLM 聊天与沙箱追溯联调验收（llm-chat-live-acceptance） | T16、T17 | completed | - | [plan](plans/T18-llm-chat-live-acceptance-2026-09-03.md) |
+| 19 | T19 | Chat SSE 实时状态转发修复（chat-sse-live-relay-fix） | T18 | completed | - | [plan](plans/T19-chat-sse-live-relay-fix-2026-09-03.md) |
+| 20 | T20 | 聊天 token 流式输出闭环（chat-token-stream-ui） | T19 | completed | - | [plan](plans/T20-chat-token-stream-ui-2026-09-03.md) |
+| 21 | T21 | What-if 基线与异步策略工作流（whatif-async-simulation-workflow） | T05、T14、T20 | completed | - | [plan](plans/T21-whatif-async-simulation-workflow-2026-09-03.md) |
 
 ---
 

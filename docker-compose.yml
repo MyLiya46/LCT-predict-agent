@@ -1,11 +1,11 @@
-# LCT-predict-agent · docker-compose（T24 / tech_design §7.2 骨架落地）
+# LCT-predict-agent · production deployment
 # 使用：cp .env.example .env → 填必填项 → docker compose up -d --build
-version: "3.9"
 
 services:
   db:
     # 与本地开发「docker run … postgres:16-alpine」同源，默认值见 .env.example「数据库」节
     image: ${POSTGRES_IMAGE:-postgres:16-alpine}
+    restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-app}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?required}
@@ -35,31 +35,79 @@ services:
   #    networks: [appnet]
 
   api:
-    build: ./backend
+    image: ${API_IMAGE:-lct-predict-agent-api:prod}
+    build:
+      context: ./backend
     command: >
       sh -c "alembic upgrade head &&
              python -m seed.v1__base_seed &&
+             python -m seed.v2__icewash_tools &&
              uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"
+    restart: unless-stopped
     environment:
       # compose 内部经 db 服务名互访（不走宿主 5432，避免与本地 dev PG 抢端口）
-      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-agent_platform}
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:?required}@db:5432/${POSTGRES_DB:-agent_platform}
       JWT_SECRET: ${JWT_SECRET:?required}
       ADMIN_INITIAL_EMAIL: ${ADMIN_INITIAL_EMAIL:-}
       ADMIN_INITIAL_PASSWORD: ${ADMIN_INITIAL_PASSWORD:-}
-      API_BASE_URL: http://api:8000
+      API_BASE_URL: ${API_BASE_URL:-http://localhost}
       SANDBOX_DAEMON_URL: http://sandbox-daemon:9000
       API_INTERNAL_TOKEN: ${API_INTERNAL_TOKEN:?required}
       LLM_API_KEYS: ${LLM_API_KEYS:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      LLM_DEFAULT_MODEL: ${LLM_DEFAULT_MODEL:-}
       WHITELIST_CIDRS: ${WHITELIST_CIDRS:-10.0.0.0/8,192.168.0.0/16}
       SANDBOX_TIMEOUT_S: ${SANDBOX_TIMEOUT_S:-30}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost}
+      WORKBENCH_SYNC_ON_STARTUP: ${WORKBENCH_SYNC_ON_STARTUP:-true}
+      ICEWASH_BASE_URL: http://icewash-model:8000
+      FORECAST_MODEL_BASE_URL: http://icewash-model:8000
+      FORECAST_MODEL_ENABLED: ${FORECAST_MODEL_ENABLED:-true}
+      FORECAST_POLL_INTERVAL_SEC: ${FORECAST_POLL_INTERVAL_SEC:-5.0}
+      FORECAST_POLL_TIMEOUT_SEC: ${FORECAST_POLL_TIMEOUT_SEC:-3600.0}
+    depends_on:
+      db:
+        condition: service_healthy
+      icewash-model:
+        condition: service_healthy
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+    networks: [appnet]
+
+  icewash-model:
+    image: ${ICEWASH_IMAGE:-lct-icewash-model:prod}
+    build:
+      context: ./services/icewash-model
+      dockerfile: Dockerfile.build
+    restart: unless-stopped
+    environment:
+      BACKEND_PG_URL: postgresql+psycopg2://${POSTGRES_USER:-app}:${POSTGRES_PASSWORD:?required}@db:5432/${POSTGRES_DB:-agent_platform}
     depends_on:
       db:
         condition: service_healthy
     expose: ["8000"]
+    volumes:
+      - icewash-log:/app/cbg_fcst_month/log
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 18
+      start_period: 30s
     networks: [appnet]
 
   sandbox-daemon:
-    build: ./services/sandbox-daemon
+    image: ${SANDBOX_IMAGE:-lct-sandbox-daemon:prod}
+    build:
+      context: ./services/sandbox-daemon
+      args:
+        DOCKER_CLI_IMAGE: ${DOCKER_CLI_IMAGE:-docker:cli}
+    restart: unless-stopped
     privileged: true
     environment:
       API_INTERNAL_TOKEN: ${API_INTERNAL_TOKEN:?required}
@@ -71,19 +119,36 @@ services:
       SANDBOX_PIDS_LIMIT: 64
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    ports:
-      - "9000:9000"
+    expose: ["9000"]
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:9000/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 15s
     networks: [appnet]
 
   nginx:
-    build: ./frontend
-    depends_on: [api]
+    image: ${FRONTEND_IMAGE:-lct-predict-agent-frontend:prod}
+    build:
+      context: ./frontend
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
     ports:
-      - "80:80"
+      - "${NGINX_PORT:-80}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1/healthz"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
     networks: [appnet]
 
 volumes:
   pgdata:
+  icewash-log:
   # 本地开发 db-dev 用；`docker compose up -d db-dev` 时启用
   # pgdata-dev:
 

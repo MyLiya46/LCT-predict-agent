@@ -3,6 +3,7 @@ import {
   MouseEvent as ReactMouseEvent,
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -10,6 +11,7 @@ import {
   type KeyboardEvent,
 } from "react";
 import {
+  ArrowDown,
   CaretDown,
   ChatCircleText,
   Clock,
@@ -20,6 +22,7 @@ import {
   PencilSimple,
   Plus,
   PushPin,
+  Trash,
   X,
 } from "@phosphor-icons/react";
 import { useAppStore } from "../store";
@@ -61,10 +64,15 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const [renameDraft, setRenameDraft] = useState("");
   const [historyHint, setHistoryHint] = useState<string | null>(null);
   const historyRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const previousSessionIdRef = useRef<string | null>(null);
+  const followLatestRef = useRef(true);
+  const [showScrollToLatest, setShowScrollToLatest] = useState(false);
 
   const messages = useAppStore((s) => s.messages);
   const sessions = useAppStore((s) => s.sessions);
   const loading = useAppStore((s) => s.loading);
+  const streamingReply = useAppStore((s) => s.streamingReply);
   const stage = useAppStore((s) => s.stage);
   const processSteps = useAppStore((s) => s.processSteps);
   const error = useAppStore((s) => s.error);
@@ -75,7 +83,53 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const loadSession = useAppStore((s) => s.loadSession);
   const renameSession = useAppStore((s) => s.renameSession);
   const togglePinSession = useAppStore((s) => s.togglePinSession);
+  const deleteSession = useAppStore((s) => s.deleteSession);
   const sessionId = useAppStore((s) => s.sessionId);
+
+  const scrollToLatest = useCallback(() => {
+    followLatestRef.current = true;
+    setShowScrollToLatest(false);
+    window.requestAnimationFrame(() => {
+      const element = scrollRef.current;
+      if (!element) return;
+      element.scrollTo({ top: element.scrollHeight, behavior: "auto" });
+    });
+  }, []);
+
+  const updateFollowState = useCallback(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    const distance = element.scrollHeight - element.scrollTop - element.clientHeight;
+    const nearLatest = distance <= 48;
+    followLatestRef.current = nearLatest;
+    setShowScrollToLatest(!nearLatest);
+  }, []);
+
+  useEffect(() => {
+    const element = scrollRef.current;
+    if (!element) return;
+    element.addEventListener("scroll", updateFollowState, { passive: true });
+    updateFollowState();
+    return () => element.removeEventListener("scroll", updateFollowState);
+  }, [updateFollowState]);
+
+  useEffect(() => {
+    if (previousSessionIdRef.current !== sessionId) {
+      previousSessionIdRef.current = sessionId;
+      followLatestRef.current = true;
+      setShowScrollToLatest(false);
+    }
+    if (followLatestRef.current) scrollToLatest();
+  }, [messages, loading, processSteps, stage, sessionId, scrollToLatest]);
+
+  const sendMessage = useCallback(
+    (query: string, paramsOverride?: Parameters<typeof send>[1]) => {
+      if (!query.trim()) return;
+      scrollToLatest();
+      void send(query, paramsOverride);
+    },
+    [scrollToLatest, send],
+  );
 
   const pushRecentTab = useCallback((id: string) => {
     setRecentTabIds((prev) => {
@@ -95,7 +149,6 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   // 清理已删除会话的标签
   useEffect(() => {
-    if (!sessions.length) return;
     const valid = new Set(sessions.map((s) => s.id));
     setRecentTabIds((prev) => {
       const next = prev.filter((id) => id === NEW_TAB_ID || valid.has(id));
@@ -154,7 +207,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   const onSubmit = (e: FormEvent) => {
     e.preventDefault();
-    void send(text);
+    sendMessage(text);
     setText("");
   };
 
@@ -169,7 +222,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
         break;
       }
     }
-    void send(q, { ...params, ...(prior_intent ? { prior_intent } : {}) });
+    sendMessage(q, { ...params, ...(prior_intent ? { prior_intent } : {}) });
   };
 
   const lastFollowUps = (() => {
@@ -184,6 +237,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
 
   const handleNewChat = () => {
     setHistoryOpen(false);
+    scrollToLatest();
     newSession();
     setRecentTabIds((prev) => {
       const next = [NEW_TAB_ID, ...prev.filter((x) => x !== NEW_TAB_ID)].slice(
@@ -201,6 +255,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       return;
     }
     if (id === sessionId) return;
+    followLatestRef.current = true;
     void loadSession(id);
   };
 
@@ -228,7 +283,31 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const handlePickHistory = (id: string) => {
     setHistoryOpen(false);
     pushRecentTab(id);
-    if (id !== sessionId) void loadSession(id);
+    if (id !== sessionId) {
+      followLatestRef.current = true;
+      void loadSession(id);
+    }
+  };
+
+  const handleDeleteSession = async (e: ReactMouseEvent, id: string) => {
+    e.stopPropagation();
+    const session = sessions.find((item) => item.id === id);
+    if (!window.confirm(`确认删除会话“${session?.title || "未命名对话"}”？`)) return;
+    setHistoryHint(null);
+    try {
+      await deleteSession(id);
+      setRecentTabIds((prev) => {
+        const next = prev.filter((item) => item !== id);
+        writeRecentTabs(next.filter((item) => item !== NEW_TAB_ID));
+        return next;
+      });
+      if (id === sessionId) {
+        newSession();
+        setHistoryOpen(false);
+      }
+    } catch (err) {
+      setHistoryHint(err instanceof Error ? err.message : "删除失败");
+    }
   };
 
   const startRename = (e: ReactMouseEvent, s: SessionSummary) => {
@@ -262,7 +341,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   };
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="relative flex h-full flex-col">
       {/* 导航：会话标签 + 新建 / 历史（嵌入侧栏模式时隐藏，历史由侧栏承接） */}
       {!embedded && (
       <div className="flex h-11 shrink-0 items-stretch border-b border-border bg-card">
@@ -420,6 +499,15 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
                             >
                               <PencilSimple size={13} />
                             </button>
+                            <button
+                              type="button"
+                              onClick={(e) => void handleDeleteSession(e, s.id)}
+                              className="inline-flex h-6 w-6 cursor-pointer items-center justify-center rounded text-muted-fg transition hover:bg-rose-100 hover:text-destructive"
+                              aria-label="删除会话"
+                              title="删除会话"
+                            >
+                              <Trash size={13} />
+                            </button>
                           </div>
                         )}
                       </div>
@@ -433,7 +521,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto">
       <div className={embedded ? `${CHAT_COLUMN} space-y-5 py-8` : "space-y-4 px-3 py-3"}>
         {messages.length === 0 && (
           <div className="flex flex-col gap-5 pt-6">
@@ -487,6 +575,19 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             </MessageBlock>
           ),
         )}
+        {streamingReply && (
+          <MessageBlock
+            align="left"
+            copyText={streamingReply}
+          >
+            <AssistantMessageBubble
+              content={streamingReply}
+              steps={[]}
+              clampAnswer={false}
+              floating={embedded}
+            />
+          </MessageBlock>
+        )}
         {loading && (
           <div className="mr-auto w-full space-y-2 rounded-xl border border-border bg-white px-3 py-2.5 text-xs text-muted-fg">
             <div className="inline-flex items-center gap-2 font-medium text-foreground">
@@ -536,6 +637,18 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
       </div>
       </div>
 
+      {showScrollToLatest && (
+        <button
+          type="button"
+          onClick={scrollToLatest}
+          className="absolute bottom-[5.75rem] right-4 z-10 inline-flex items-center gap-1 rounded-full border border-border bg-white px-2.5 py-1.5 text-[11px] font-medium text-foreground shadow-md transition hover:border-primary/40 hover:text-primary"
+          aria-label="回到底部"
+        >
+          <ArrowDown size={13} />
+          回到底部
+        </button>
+      )}
+
       <form onSubmit={onSubmit} className={embedded ? "shrink-0 pb-6 pt-1" : "border-t border-border p-3"}>
         <div className={embedded ? CHAT_COLUMN : undefined}>
         <div className={`flex items-end gap-2 p-2 focus-within:border-primary/50 focus-within:ring-2 focus-within:ring-primary/15 ${
@@ -552,7 +665,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
             onKeyDown={(e) => {
               if (e.key === "Enter" && !e.shiftKey) {
                 e.preventDefault();
-                void send(text);
+                sendMessage(text);
                 setText("");
               }
             }}
@@ -684,6 +797,7 @@ function AssistantMessageBubble({
   floating?: boolean;
 }) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
+  const thinkingListId = useId();
   const [answerExpanded, setAnswerExpanded] = useState(!clampAnswer);
   const plain = stripMd(content);
   const showResult = hasInlineResult(envelope);
@@ -705,6 +819,7 @@ function AssistantMessageBubble({
             onClick={() => setThinkingOpen((v) => !v)}
             className="flex w-full cursor-pointer items-center gap-2 px-3 py-2 text-left transition hover:bg-slate-100/80"
             aria-expanded={thinkingOpen}
+            aria-controls={thinkingListId}
           >
             <CaretDown
               size={14}
@@ -717,7 +832,7 @@ function AssistantMessageBubble({
             </span>
           </button>
           {thinkingOpen && (
-            <ul className="max-h-40 space-y-1 overflow-y-auto border-l-2 border-border px-3 pb-2.5 pl-5">
+            <ul id={thinkingListId} className="max-h-40 space-y-1 overflow-y-auto border-l-2 border-border px-3 pb-2.5 pl-5">
               {steps.map((step, i) => {
                 const isLast = i === steps.length - 1;
                 const inProgress = isLast && /正在|…$|\.\.\.$/.test(step);

@@ -172,6 +172,18 @@ export async function loginWithEmail(email: string, password: string): Promise<B
   return response.data;
 }
 
+export async function registerWithEmail(
+  email: string,
+  password: string,
+  nickname: string,
+): Promise<{ user_id: string; email: string }> {
+  const response = await json<{ data: { user_id: string; email: string } }>('/api/v1/auth/register', {
+    method: "POST",
+    body: JSON.stringify({ email, password, nickname }),
+  });
+  return response.data;
+}
+
 export async function refreshWithToken(refreshToken: string): Promise<BackupTokenResponse> {
   const response = await json<{ data: BackupTokenResponse }>("/api/v1/auth/refresh", {
     method: "POST",
@@ -377,6 +389,12 @@ export async function updateSession(
   });
 }
 
+export async function deleteSession(id: string): Promise<{ ok: boolean }> {
+  return json<{ ok: boolean }>(`/api/sessions/${encodeURIComponent(id)}`, {
+    method: "DELETE",
+  });
+}
+
 export async function fetchSession(id: string) {
   return json<{
     id: string;
@@ -441,6 +459,7 @@ export async function sendChatStream(
   sessionId: string | null,
   params: ChatParams,
   onStatus: (status: StreamStatus) => void,
+  onDelta: (text: string) => void,
   auth: ChatAuth,
 ): Promise<ChatResultPayload> {
   const requestInit: RequestInit = {
@@ -477,7 +496,7 @@ export async function sendChatStream(
   let result: ChatResultPayload | null = null;
 
   const handleBlock = (block: string) => {
-    const lines = block.split("\n");
+    const lines = block.split(/\r?\n/);
     let eventName = "message";
     const dataLines: string[] = [];
     for (const line of lines) {
@@ -492,6 +511,8 @@ export async function sendChatStream(
       const data = JSON.parse(dataLines.join("\n")) as StreamStatus & ChatResultPayload & { ok?: boolean };
       if (eventName === "status") {
         onStatus(data);
+      } else if (eventName === "delta") {
+        if (typeof data.text === "string" && data.text) onDelta(data.text);
       } else if (eventName === "result") {
         result = {
           session_id: data.session_id,
@@ -511,7 +532,7 @@ export async function sendChatStream(
     const { done, value } = await reader.read();
     if (done) break;
     buffer += decoder.decode(value, { stream: true });
-    const parts = buffer.split("\n\n");
+    const parts = buffer.split(/\r?\n\r?\n/);
     buffer = parts.pop() || "";
     for (const part of parts) {
       if (part.trim()) handleBlock(part.trim());
@@ -817,6 +838,9 @@ export async function fetchAttributionTrend(
 
 export type WhatIfBaselineItem = {
   sku: string;
+  channel_l3?: string | null;
+  category?: string | null;
+  period?: string | null;
   status: string;
   series: string;
   plan_price: number | null;
@@ -893,4 +917,66 @@ export async function fetchWhatIfStrategies(
   return json<WhatIfStrategiesResponse>(
     `/api/whatif/strategies${q ? `?${q}` : ""}`,
   );
+}
+
+export type WhatIfModelRow = {
+  sku: string;
+  channel_l3?: string | null;
+  category?: string | null;
+  status?: string | null;
+  baseline_qty: number;
+  plan_price?: number | null;
+  elasticity_coef?: number | null;
+  elasticity_class?: string | null;
+  strategy_id?: string | null;
+  param?: string | null;
+  traffic_tier?: string | null;
+  target_qty?: number;
+};
+
+export type WhatIfModelResultRow = WhatIfModelRow & {
+  strategy_id: string;
+  strategy_name?: string;
+  sim_qty: number;
+  sim_price: number;
+  effect_note?: string;
+  gap?: number;
+};
+
+export type WhatIfTask = {
+  status: "pending" | "running" | "completed" | "failed" | string;
+  progress?: string | null;
+  result?: { rows?: WhatIfModelResultRow[] } | null;
+  error_message?: string | null;
+};
+
+export async function submitWhatIfSimulation(rows: WhatIfModelRow[]) {
+  return json<{ task_id: string; status: string }>("/api/whatif/simulate", {
+    method: "POST",
+    body: JSON.stringify({
+      strategy_id: "maintain",
+      param: null,
+      traffic_tier: null,
+      rows,
+    }),
+  });
+}
+
+export async function submitWhatIfOptimization(
+  targetQty: number,
+  rows: WhatIfModelRow[],
+) {
+  return json<{ task_id: string; status: string }>("/api/whatif/optimize", {
+    method: "POST",
+    body: JSON.stringify({
+      target_qty: targetQty,
+      param: null,
+      traffic_tier: null,
+      rows,
+    }),
+  });
+}
+
+export async function fetchWhatIfTask(taskId: string) {
+  return json<WhatIfTask>(`/api/whatif/tasks/${encodeURIComponent(taskId)}`);
 }

@@ -75,9 +75,11 @@ class OpenAICompatProvider:
             async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
                 async with client.stream("POST", url, json=payload, headers=headers) as resp:
                     if resp.status_code != 200:
-                        err_text = (await resp.aread()).decode("utf-8", errors="ignore")[:500]
                         code = "UPSTREAM" if resp.status_code >= 500 else "UPSTREAM"
-                        yield ErrorEvent(code=code, message=f"HTTP {resp.status_code}: {err_text}")
+                        # Do not copy an upstream response body into trace/SSE
+                        # payloads: gateways occasionally echo credentials or
+                        # internal request details there.
+                        yield ErrorEvent(code=code, message=f"HTTP {resp.status_code}")
                         return
 
                     tool_builder: dict[int, dict[str, Any]] = {}
@@ -85,9 +87,12 @@ class OpenAICompatProvider:
                     stop_reason = ""
                     usage: Optional[dict[str, int]] = None
                     async for line in resp.aiter_lines():
-                        if not line.startswith("data: "):
+                        # SSE permits both `data:` and `data: `; accepting
+                        # both also handles gateways that trim the optional
+                        # space when proxying a stream.
+                        if not line.startswith("data:"):
                             continue
-                        data_str = line[6:].strip()
+                        data_str = line[5:].strip()
                         if data_str == "[DONE]":
                             break
                         try:

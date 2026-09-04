@@ -18,7 +18,33 @@ async def agent_health() -> dict:
     """Local configuration status only; deliberately does not probe the gateway."""
     from app.llm.gateway.ml_api_client import MLApiClient
 
-    return await MLApiClient().health()
+    gateway = await MLApiClient().health()
+    if gateway.get("ok"):
+        return gateway
+
+    # The workbench chat loop currently resolves its provider from PG rather
+    # than from the optional ML gateway client.  Report that real source of
+    # availability so the UI does not say "disabled" while chat is healthy.
+    # This is deliberately a local DB/status check; it never sends a request
+    # upstream and never reads/decrypts the provider secret.
+    try:
+        from app.llm.service import get_default_provider
+
+        async with get_session_factory()() as session:
+            provider = await get_default_provider(session)
+        if provider is not None and getattr(provider, "status", "healthy") == "healthy":
+            return {
+                "ok": True,
+                "mode": "provider",
+                "configured_mode": gateway.get("configured_mode", "blocking"),
+                "url": getattr(provider, "base_url", ""),
+                "provider": "llm-provider",
+            }
+    except Exception:  # noqa: BLE001
+        # Health must remain a cheap, non-blocking projection even when the
+        # database is unavailable during startup.
+        pass
+    return gateway
 
 
 @router.get("/healthz")

@@ -136,7 +136,7 @@ class CategoryBatchMappingDTO(BaseModel):
 
 
 class SimulateRow(BaseModel):
-    """per-SKU 基线行（simulate/optimize 传入）。elasticity_coef/class/category/status 可缺省。"""
+    """per-SKU 基线行（simulate/optimize 传入）。"""
     sku: str = Field(..., description="型号")
     channel_l3: str = Field("", description="3级渠道")
     category: Optional[str] = Field(None, description="品类")
@@ -145,6 +145,10 @@ class SimulateRow(BaseModel):
     plan_price: Optional[float] = Field(None, description="计划价")
     elasticity_coef: Optional[float] = Field(None, description="价格弹性系数（缺省走类别 fallback）")
     elasticity_class: Optional[str] = Field(None, description="弹性类别")
+    strategy_id: Optional[str] = Field(None, description="行级策略，缺省使用请求级策略")
+    param: Optional[str] = Field(None, description="行级策略参数，缺省使用请求级参数")
+    traffic_tier: Optional[str] = Field(None, description="行级投流档位")
+    target_qty: Optional[float] = Field(None, ge=0, description="行级优化目标销量")
 
 
 class SimulateRequest(BaseModel):
@@ -684,19 +688,24 @@ def _simulate_rows(req: SimulateRequest) -> List[Dict[str, Any]]:
     results = []
     for row in req.rows:
         ed = whatif_engine.resolve_ed(row.elasticity_coef, row.elasticity_class)
+        strategy_id = row.strategy_id or req.strategy_id
+        param = row.param if row.param is not None else req.param
+        traffic_tier = row.traffic_tier or req.traffic_tier
         res = whatif_engine.simulate_row(
             baseline_qty=row.baseline_qty,
             plan_price=row.plan_price,
-            strategy_id=req.strategy_id,
-            param=req.param,
+            strategy_id=strategy_id,
+            param=param,
             ed=ed,
-            traffic_tier=req.traffic_tier,
+            traffic_tier=traffic_tier,
         )
         results.append({
             "sku": row.sku,
             "channel_l3": row.channel_l3,
             "category": row.category,
-            "strategy_id": req.strategy_id,
+            "strategy_id": strategy_id,
+            "param": param,
+            "traffic_tier": traffic_tier,
             "baseline_qty": row.baseline_qty,
             **res,
         })
@@ -766,19 +775,24 @@ async def optimize(request: OptimizeRequest, background_tasks: BackgroundTasks):
             per_sku = []
             for row in request.rows:
                 ed = whatif_engine.resolve_ed(row.elasticity_coef, row.elasticity_class)
+                target_qty = row.target_qty if row.target_qty is not None else request.target_qty
                 best = whatif_engine.search_optimize(
                     baseline_qty=row.baseline_qty,
                     plan_price=row.plan_price,
-                    target_qty=request.target_qty,
+                    target_qty=target_qty,
                     ed=ed,
-                    param=request.param,
-                    traffic_tier=request.traffic_tier,
+                    status=row.status,
+                    param=row.param if row.param is not None else request.param,
+                    traffic_tier=row.traffic_tier or request.traffic_tier,
                 )
                 per_sku.append({
                     "sku": row.sku,
                     "channel_l3": row.channel_l3,
                     "category": row.category,
-                    "target_qty": request.target_qty,
+                    "status": row.status,
+                    "target_qty": target_qty,
+                    "param": row.param if row.param is not None else request.param,
+                    "traffic_tier": row.traffic_tier or request.traffic_tier,
                     "baseline_qty": row.baseline_qty,
                     **best,
                 })
