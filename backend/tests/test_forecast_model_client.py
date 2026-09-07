@@ -36,7 +36,13 @@ def test_month_batch_payload_and_run_key():
     assert payload["categoryBatchMappingDTOList"] == [
         {"category": "冰箱", "priceBatchNumber": "P-1", "productBatchNumber": "S-1"}
     ]
+    horizon_payload = _build_payload(
+        category="冰箱", forecast_month="2026-08", forecast_horizon=3, settings=settings
+    )
+    assert horizon_payload["systemForecastNumber"] == "AG_冰箱_2026-08-H3"
+    assert horizon_payload["forecastHorizon"] == 3
     assert run_key("冰箱", "2026-08-01") == "AG_冰箱_2026-08"
+    assert run_key("冰箱", "2026-08-01", 3) == "AG_冰箱_2026-08-H3"
 
 
 def test_agent_category_aliases_use_canonical_model_key():

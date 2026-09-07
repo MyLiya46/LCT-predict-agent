@@ -18,7 +18,7 @@ def _report(progress_callback, message: str) -> None:
 
 def main(systemForecastNumber, productLine, reporter, generateTime,
          forecastMonth, saveTestData, categoryBatchMappingDTOList,
-         progress_callback=None):
+         progress_callback=None, forecast_horizon=None):
     # 初始化配置
     cfg = Config()
     engine = create_engine(cfg.ENGINE_URL)
@@ -42,6 +42,9 @@ def main(systemForecastNumber, productLine, reporter, generateTime,
     if forecastMonth is not None:
         cfg.DATE_SETTINGS = forecastMonth
         print(f'===> update forecast month: {cfg.DATE_SETTINGS}')
+    if forecast_horizon is not None:
+        cfg.FORECAST_MONTHS = max(1, min(int(forecast_horizon), 12))
+        print(f'===> forecast horizon: {cfg.FORECAST_MONTHS}')
 
     _report(
         progress_callback,
@@ -53,7 +56,9 @@ def main(systemForecastNumber, productLine, reporter, generateTime,
 
     # 执行预测
     forecast_results, detailed_results, attribution_factors, history_results = pipeline.run(
-        cfg.DATE_SETTINGS, progress_callback=progress_callback
+        cfg.DATE_SETTINGS,
+        progress_callback=progress_callback,
+        forecast_horizon=cfg.FORECAST_MONTHS,
     )
     print(f"预测完成，共生成 {len(forecast_results)} 条预测结果")
     _report(progress_callback, f"预测流水线完成，共生成 {len(forecast_results)} 条预测结果")

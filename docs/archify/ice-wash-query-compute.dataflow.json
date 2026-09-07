@@ -1,0 +1,73 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Ice Wash 查询、预测缓存、归因与 What-if 数据流",
+    "locale": "zh-CN",
+    "quality_profile": "showcase",
+    "legend": { "mode": "hidden" },
+    "viewBox": [1500, 730]
+  },
+  "stages": [
+    { "label": "入口" },
+    { "label": "查询与工具" },
+    { "label": "模型与中转" },
+    { "label": "存储与派生" },
+    { "label": "展示与聊天" }
+  ],
+  "nodes": [
+    { "id": "workbench", "type": "frontend", "label": "工作台", "stage": 0, "row": 0, "tag": "UI", "width": 150 },
+    { "id": "ai_chat", "type": "frontend", "label": "AI 聊天界面", "stage": 0, "row": 4, "tag": "AI" },
+    { "id": "workbench_api", "type": "backend", "label": "Workbench API", "stage": 1, "row": 0, "tag": "read", "width": 128 },
+    { "id": "ai_tools", "type": "backend", "label": "AI 内部工具", "stage": 1, "row": 4, "tag": "capabilities", "width": 164 },
+    { "id": "icewash", "type": "external", "label": "Ice Wash Model", "stage": 2, "row": 1, "tag": "black box", "width": 140 },
+    { "id": "model_relay", "type": "backend", "label": "PG Relay / Tasks", "stage": 2, "row": 3, "tag": "relay", "width": 150 },
+    { "id": "data_store", "type": "database", "label": "PostgreSQL 数据层", "stage": 3, "row": 0, "tag": "source", "width": 180 },
+    { "id": "result_projection", "type": "backend", "label": "结果与基线组装", "stage": 3, "row": 3, "tag": "derived", "width": 150 },
+    { "id": "attribution_api", "type": "backend", "label": "归因独立 API", "stage": 3, "row": 4, "tag": "separate read", "width": 140 },
+    { "id": "workbench_result", "type": "frontend", "label": "工作台结果", "stage": 4, "row": 3, "tag": "visible", "width": 140 },
+    { "id": "chat_response", "type": "frontend", "label": "AI 聊天结果", "stage": 4, "row": 4, "tag": "visible", "width": 140 }
+  ],
+  "flows": [
+    { "id": "workbench-query", "from": "workbench", "to": "workbench_api", "label": "筛选 → 表/图", "classification": "GET /api/workbench/*", "variant": "emphasis", "fromSide": "right", "toSide": "left", "route": "straight", "labelAt": [208, 205] },
+    { "id": "chat-tool-select", "from": "ai_chat", "to": "ai_tools", "label": "意图 + 参数", "classification": "LLM orchestration", "variant": "emphasis", "fromSide": "right", "toSide": "left", "route": "straight", "labelAt": [208, 665] },
+    { "id": "workbench-filter", "from": "workbench_api", "to": "data_store", "label": "查询条件", "classification": "PG filters", "variant": "default", "fromSide": "right", "toSide": "left", "route": "straight", "labelAt": [530, 120] },
+    { "id": "data-read", "from": "data_store", "to": "result_projection", "label": "历史 / 预测行", "classification": "rows + columns + total", "variant": "default", "fromSide": "bottom", "toSide": "top", "route": "straight", "labelAt": [950, 330] },
+    { "id": "workbench-response", "from": "result_projection", "to": "workbench_result", "label": "历史 / 预测 / What-if", "classification": "Workbench response", "variant": "emphasis", "fromSide": "right", "toSide": "left", "route": "straight", "labelAt": [600, 700] },
+    { "id": "tool-read", "from": "ai_tools", "to": "data_store", "label": "历史 / 预测 / 归因", "classification": "native tool read", "variant": "default", "fromSide": "bottom", "toSide": "top", "via": [[315, 650], [20, 650], [20, 80], [745, 80]], "labelAt": [380, 65] },
+    { "id": "forecast-submit", "from": "ai_tools", "to": "icewash", "label": "月份 + 跨度", "classification": "POST /predict", "variant": "emphasis", "fromSide": "top", "toSide": "right", "via": [[315, 570], [650, 570], [650, 271]], "labelAt": [500, 590] },
+    { "id": "model-output", "from": "icewash", "to": "model_relay", "label": "预测行 + 因子", "classification": "black-box output", "variant": "emphasis", "fromSide": "top", "toSide": "left", "via": [[530, 200], [440, 200], [440, 499]], "labelAt": [250, 500] },
+    { "id": "relay-sync", "from": "model_relay", "to": "data_store", "label": "预测 / 归因入库", "classification": "PG relay", "variant": "dashed", "fromSide": "top", "toSide": "left", "via": [[530, 430], [450, 430], [450, 157]], "labelAt": [500, 350] },
+    { "id": "attribution-query", "from": "data_store", "to": "attribution_api", "label": "SKU + 月 + 版本", "classification": "GET /api/attribution/*", "variant": "default", "fromSide": "right", "toSide": "top", "via": [[860, 157], [860, 450], [1050, 450], [1050, 570], [745, 570]], "labelAt": [1120, 460] },
+    { "id": "attribution-response", "from": "attribution_api", "to": "workbench_result", "label": "y_pred + 因子影响", "classification": "quantity attribution", "variant": "default", "fromSide": "right", "toSide": "right", "via": [[850, 613], [850, 550], [1050, 550], [1050, 499]], "labelAt": [820, 700] },
+    { "id": "whatif-input", "from": "result_projection", "to": "icewash", "label": "基线 + 价/成本", "classification": "POST /simulate | /optimize", "variant": "default", "fromSide": "top", "toSide": "right", "via": [[745, 430], [780, 430], [780, 271]], "labelAt": [950, 400] },
+    { "id": "whatif-output", "from": "icewash", "to": "result_projection", "label": "模拟量 / 价 / 额", "classification": "task result", "variant": "default", "fromSide": "top", "toSide": "right", "via": [[530, 200], [840, 200], [840, 499]], "labelAt": [920, 230] },
+    { "id": "chat-response", "from": "ai_tools", "to": "chat_response", "label": "工具结果 → SSE", "classification": "SSE / chat result", "variant": "emphasis", "fromSide": "bottom", "toSide": "right", "via": [[315, 670], [1100, 670], [1100, 613]], "labelAt": [500, 670] }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "查询筛选与当前返回",
+      "items": [
+        "工作台 GET /api/workbench/filter-options/{dataset}、tables/{dataset}、charts/{dataset}；筛选 category、channel/channel_l1、sku、period、series、version、status、product_line、分页",
+        "raw_data: retail_qty、retail_amt，历史均价=retail_amt/retail_qty；fcst_detail: month、sku、forecast_qty、plan_price，销售额=qty×plan_price"
+      ]
+    },
+    {
+      "dot": "violet",
+      "title": "预测缓存与归因契约",
+      "items": [
+        "submit_forecast → Ice Wash /predict → 轮询 → sync_forecast_relay；N+1…N+6 的 y_pred 写入 fcst_*，再同步语义表；缓存按 category、version、sku/channel、period/horizon 读取",
+        "工作台读 fcst_detail，AI 读 fcst_forecast_result；归因是独立 GET /api/attribution/options|skus|detail|trend，当前只有销量 impact，缺 delta_price"
+      ]
+    },
+    {
+      "dot": "orange",
+      "title": "What-if、baseline 与 AI 复用",
+      "items": [
+        "baseline 拼 attribution/history/forecast/price/cost/elasticity；计划价优先，历史价仅作为 sum(retail_amt)/sum(retail_qty) 的最后兜底",
+        "plan_price→预测明细/计划价，baseline_price→What-if 实际基线价，cost_price→cost_data；simulate/optimize→sim_qty、sim_price、sim_amount，缺价为 null+coverage/status；AI 通过 internal tools + PG session 复用数据层，价格与 delta_price 仍需统一契约"
+      ]
+    }
+  ]
+}

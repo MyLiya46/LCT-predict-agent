@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { AgentResultEnvelope, ChartType } from "../types";
+import type { AgentResultEnvelope } from "../types";
 import { InsightBody, stripRelatedSuggestions } from "./InsightPanel";
 import { ChartBody, chartTypeLabel } from "./ChartPanel";
 import { TableBody } from "./TablePanel";
@@ -11,6 +11,16 @@ export function hasInlineResult(env?: AgentResultEnvelope | null): boolean {
   if (env.chart || (env.table?.rows && env.table.rows.length > 0)) return true;
   if (env.update_workspace === false) return false;
   return Boolean(stripRelatedSuggestions(env.text?.markdown || "").trim());
+}
+
+function hasChartContent(envelope: AgentResultEnvelope): boolean {
+  const chart = envelope.chart;
+  if (!chart) return false;
+  if ((chart.type === "composite" || chart.type === "strategy_dashboard") && "cards" in chart && Array.isArray(chart.cards)) {
+    return chart.cards.length > 0 || Boolean(chart.option);
+  }
+  // An unknown type still gets a diagnostic placeholder in ChartBody.
+  return true;
 }
 
 function defaultTab(tabs: TabId[]): TabId {
@@ -26,7 +36,7 @@ export function MessageResultCard({
 }) {
   const markdown = stripRelatedSuggestions(envelope.text?.markdown || "").trim();
   const hasInsight = Boolean(markdown);
-  const hasChart = Boolean(envelope.chart);
+  const hasChart = hasChartContent(envelope);
   const hasTable = Boolean(envelope.table?.rows?.length);
 
   const tabs = useMemo(() => {
@@ -75,7 +85,7 @@ export function MessageResultCard({
           <ChartBody
             envelope={envelope}
             height={280}
-            typeHint={chartTypeLabel(envelope.chart?.type as ChartType)}
+            typeHint={chartTypeLabel(envelope.chart?.type)}
           />
         </div>
       )}

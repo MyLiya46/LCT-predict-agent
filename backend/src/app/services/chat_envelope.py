@@ -1,13 +1,15 @@
 """Normalize native capability output into the frontend workbench envelope.
 
-The native engine owns capability selection.  This module only projects the
-last successful ``response_type`` and its structured output; it does not
-inspect intent/planner fields or perform another classification pass.
+The native engine owns capability selection.  This module only projects
+successful structured capability output; it does not inspect intent/planner
+fields or perform another classification pass.
 """
 from __future__ import annotations
 
 from copy import deepcopy
 from typing import Any, Iterable
+
+from app.services.chat_result_projection import project_forecast_attribution
 
 RESPONSE_TYPES = frozenset(
     {"history", "forecast", "attribution", "report", "simulation", "optimization"}
@@ -75,9 +77,21 @@ def build_envelope(
     tool_outputs: Iterable[dict[str, Any]] | None,
     process_steps: Iterable[str] | None,
     status: str,
+    *,
+    limit: int | None = None,
 ) -> dict[str, Any]:
     """Build the stable T10 envelope from native successful tool outputs."""
     outputs = list(tool_outputs or [])
+    projected = project_forecast_attribution(
+        final_text,
+        outputs,
+        process_steps,
+        status,
+        limit=limit,
+    )
+    if projected is not None:
+        return projected
+
     selected_type = "report"
     selected_tool = "engine"
     selected: dict[str, Any] | None = None

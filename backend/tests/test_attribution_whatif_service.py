@@ -38,7 +38,13 @@ class _Session:
         if entity is ForecastHistoryRow:
             return _Result(self.history)
         if entity is WorkbenchDatasetRow:
-            return _Result(self.datasets)
+            params = statement.compile().params
+            dataset = params.get("dataset_1")
+            version = params.get("version_1")
+            rows = [row for row in self.datasets if not dataset or row.dataset == dataset]
+            if version:
+                rows = [row for row in rows if row.version == version]
+            return _Result(rows)
         return _Result([])
 
 
@@ -95,9 +101,112 @@ async def test_baseline_is_pg_db_source_and_counts_elasticity(session):
     result = await load_baseline(session, category="冰箱", version="v1")
     assert result["source"] == "db"
     assert result["items"]
-    assert result["elasticity_hits"] == 2
+    assert result["elasticity_hits"] == 1
+    assert result["total"] == 2
+    assert result["items"][0]["sku"] == "A"
     assert result["items"][0]["plan_price"] == 10
+    assert result["items"][0]["price_source"] == "mixed"
+    assert result["items"][0]["price_base_month"] is None
+    assert len(result["items"][0]["details"]) == 2
+    assert result["items"][0]["details"][0]["forecast_qty"] == 110
+    assert result["items"][0]["details"][0]["baseline_price"] == 10
+    assert result["items"][0]["details"][0]["price_source"] == "forecast_plan"
+    assert result["items"][0]["details"][1]["baseline_price"] == 10
+    assert result["items"][0]["details"][1]["price_source"] == "historical_last_valid_month"
+    assert result["items"][0]["details"][1]["price_base_month"] == "2026-08"
     assert result["summary"]["months"] == ["2026-09", "2026-10"]
     assert result["summary"]["qty_series"] == [160.0, 110.0]
-    assert result["summary"]["amount_series"] == [1100.0, 0.0]
+    assert result["summary"]["amount_series"] == [1100.0, 1100.0]
     assert result["summary"]["baseline_qty"] == 270.0
+    assert result["summary"]["baseline_amount"] == 2200.0
+    assert result["summary"]["inventory_turnover_days"] is None
+    assert result["summary"]["inventory_turnover_label"] == "45天（占位）"
+    assert result["summary"]["inventory_turnover_status"] == "unavailable"
+    assert "库存" in result["summary"]["inventory_turnover_reason"]
+
+    limited = await load_baseline(session, category="冰箱", version="v1", limit=1)
+    assert limited["total"] == 2
+    assert limited["summary"]["baseline_qty"] == 270.0
+    assert limited["summary"]["baseline_amount"] == 2200.0
+    assert len(limited["items"]) == 1
+
+
+@pytest.mark.asyncio
+async def test_baseline_resolves_plan_before_history_and_keeps_missing_null():
+    months = ["2026-09", "2026-10", "2026-11", "2026-12", "2027-01", "2027-02"]
+    attrs = [
+        _attr(id=f"a-{index}", period=month, horizon=f"N+{index + 1}", y_pred=100)
+        for index, month in enumerate(months)
+    ]
+    attrs.extend(
+        [
+            _attr(id="cross", sku="C", period="2026-09", horizon="N+1", y_pred=20, channel_l3="京东"),
+            _attr(id="batch", sku="D", period="2026-09", horizon="N+1", y_pred=30, channel_l3="京东"),
+            _attr(id="missing", sku="E", period="2026-09", horizon="N+1", y_pred=40, channel_l3="京东"),
+        ]
+    )
+    history = [
+        _history(id="a-old", period="2026-07", retail_qty=100, retail_amt=1100),
+        _history(id="a-latest-1", period="2026-08", retail_qty=90, retail_amt=900),
+        _history(id="a-latest-2", period="2026-08", retail_qty=10, retail_amt=100),
+        _history(id="a-other-channel", period="2026-08", retail_qty=100, retail_amt=2000, channel_l3="天猫"),
+        _history(id="c-other-channel", sku="C", period="2026-08", retail_qty=50, retail_amt=1000, channel_l3="天猫"),
+        _history(id="e-invalid-qty", sku="E", period="2026-08", retail_qty=0, retail_amt=500),
+        _history(id="e-invalid-amt", sku="E", period="2026-07", retail_qty=10, retail_amt=None),
+    ]
+    datasets = [
+        SimpleNamespace(
+            dataset="fcst_detail",
+            category="冰箱",
+            version="v1",
+            period="2026-09",
+            sku="A",
+            channel_l3="旗舰店",
+            payload={"plan_price": 12},
+            created_at=None,
+            id="detail-null",
+        ),
+        SimpleNamespace(
+            dataset="price_data",
+            category="冰箱",
+            version="JG_v1",
+            period="2026-09",
+            sku="D",
+            channel_l3="京东",
+            payload={"计划价格": 33},
+            created_at=None,
+            id="price-batch",
+        ),
+    ]
+    isolated = _Session(attrs, history, datasets)
+
+    result = await load_baseline(isolated, category="冰箱", version="v1")
+    items = {item["sku"]: item for item in result["items"]}
+
+    history_item = items["A"]
+    assert history_item["price_source"] == "mixed"
+    assert history_item["price_base_month"] is None
+    assert history_item["plan_price"] == 12
+    assert len(history_item["details"]) == 6
+    assert history_item["details"][0]["baseline_price"] == 12
+    assert history_item["details"][0]["price_source"] == "forecast_plan"
+    assert history_item["details"][0]["plan_price"] == 12
+    assert all(detail["baseline_price"] == 10 for detail in history_item["details"][1:])
+    assert all(detail["price_source"] == "historical_last_valid_month" for detail in history_item["details"][1:])
+    assert history_item["details"][0]["baseline_amount"] == 1200
+    assert all(detail["baseline_amount"] == 1000 for detail in history_item["details"][1:])
+
+    assert items["C"]["baseline_price"] == 20
+    assert items["C"]["plan_price"] is None
+    assert items["C"]["price_source"] == "historical_last_valid_month"
+    assert items["D"]["baseline_price"] == 33
+    assert items["D"]["plan_price"] == 33
+    assert items["D"]["price_source"] == "price_data"
+    assert items["D"]["price_base_month"] == "2026-09"
+
+    assert items["E"]["plan_price"] is None
+    assert items["E"]["price_source"] is None
+    assert items["E"]["price_status"] == "missing"
+    assert items["E"]["details"][0]["baseline_price"] is None
+    assert items["E"]["details"][0]["baseline_amount"] is None
+    assert result["summary"]["baseline_amount"] == 6200 + 400 + 990

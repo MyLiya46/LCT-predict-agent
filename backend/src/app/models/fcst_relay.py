@@ -36,6 +36,7 @@ class FcstForecastResult(_FcstIdentityMixin, Base):
     channel_l3: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     sku: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     final_value: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    plan_price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 
 
 class FcstAttribution(_FcstIdentityMixin, Base):
@@ -86,3 +87,4 @@ class FcstHistory(_FcstIdentityMixin, Base):
     channel_l3: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     sku: Mapped[Optional[str]] = mapped_column(String(128), nullable=True)
     qty: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    retail_amt: Mapped[Optional[float]] = mapped_column(Float, nullable=True)

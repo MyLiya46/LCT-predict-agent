@@ -29,6 +29,7 @@ class SimulateRequest(WhatifRequest):
 
 class OptimizeRequest(WhatifRequest):
     target_qty: float
+    target_revenue: float | None = Field(default=None, ge=0)
     param: str | None = None
     traffic_tier: str | None = None
 

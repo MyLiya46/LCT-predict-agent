@@ -57,9 +57,7 @@ def _status_event(
     detail: str | None = None,
     custom_text: str | None = None,
 ) -> dict[str, Any]:
-    text = custom_text or _STAGE_TEXT.get(state, detail or state)
-    if detail and state not in _STAGE_TEXT and custom_text is None:
-        text = detail
+    text = custom_text or detail or _STAGE_TEXT.get(state, state)
     if text and (not steps or steps[-1] != text):
         steps.append(text)
     del steps[:-40]

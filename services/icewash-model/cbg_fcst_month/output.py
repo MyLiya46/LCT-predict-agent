@@ -223,25 +223,35 @@ def create_sales_pivot(dsi_data, begin_inv_data, results_df):
 
 def save_results(results, engine, output_table, target_month, api_param, format, save_test_data, test_format, test_output_table,
                  detailed_results=None, attribution_factors=None, history_results=None):
+    """Persist the formatted result using the horizons actually requested.
+
+    The legacy export schema was hard-coded for N+1..N+7.  A shorter API
+    request still produces the base month plus its requested forecast months,
+    so indexing the seven-month column list raises before the Excel/PG write
+    can happen.  Keep the legacy names, but only map columns present in the
+    formatted frame (up to the public 12-month limit).
+    """
+    def horizon_columns(source_prefix, output_prefix):
+        mapped = {}
+        for index in range(13):
+            source = f'{source_prefix}_n{"月" if index == 0 else str(index) + "月"}'
+            if source not in results.columns:
+                continue
+            target = f'{output_prefix}_n{"" if index == 0 else index}'
+            mapped[source] = target
+        return mapped
+
     factory_dict = {
-        f'最低出货价_n{"月" if i == 0 else str(i)+"月"}': 
-        f'min_sell_price_n{"" if i == 0 else i}' 
-        for i in range(7)
+        **horizon_columns('最低出货价', 'min_sell_price'),
     }
     price_dict = {
-        f'价格_n{"月" if i == 0 else str(i)+"月"}': 
-        f'min_retail_price_n{"" if i == 0 else i}' 
-        for i in range(7)
+        **horizon_columns('价格', 'min_retail_price'),
     }
     quantity_dict = {
-        f'零售量_n{"月" if i == 0 else str(i)+"月"}': 
-        f'retail_qty_n{"" if i == 0 else i}' 
-        for i in range(7)
+        **horizon_columns('零售量', 'retail_qty'),
     }
     sales_dict = {
-        f'销量_n{"月" if i == 0 else str(i)+"月"}': 
-        f'sales_qty_n{"" if i == 0 else i}' 
-        for i in range(7)
+        **horizon_columns('销量', 'sales_qty'),
     }
     
     columns_mapping = {
@@ -281,7 +291,13 @@ def save_results(results, engine, output_table, target_month, api_param, format,
 
     final_cols = ['period_id', *columns_mapping.values(), 'submitter', 'submit_time', 'version_number', 'last_update_time']
 
-    test_cols = [final_cols[i] for i in [0, 1, 3, 4, 5, 24, 25, 38, 39, 40, 41]]
+    test_preferred = [
+        'period_id', 'product_line_code', 'category_name', 'channel_name_l3',
+        'product_mode_code', 'product_series', 'min_sell_price_n',
+        'min_sell_price_n1', 'retail_qty_n', 'retail_qty_n1',
+        'sales_qty_n', 'sales_qty_n1',
+    ]
+    test_cols = [column for column in test_preferred if column in final_cols]
 
     final_results = results[final_cols]
 

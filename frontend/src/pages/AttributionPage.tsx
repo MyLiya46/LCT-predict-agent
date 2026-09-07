@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactECharts from "echarts-for-react";
-import type { CustomSeriesRenderItem, EChartsOption } from "echarts";
 import {
   fetchAttributionDetail,
   fetchAttributionOptions,
@@ -10,6 +9,7 @@ import {
   type AttributionSkuItem,
   type AttributionTrend,
 } from "../api";
+import { buildForecastTrendOption, buildWaterfallOption } from "../components/agent/ForecastAttributionChart";
 
 const COLORS = {
   primary: "#1890ff",
@@ -55,6 +55,14 @@ function SectionTitle({ children }: { children: string }) {
 
 function itemKey(item: AttributionSkuItem) {
   return `${item.sku}||${item.channel_l1}||${item.channel_l3}`;
+}
+
+function nullableTrendValue(value: number | string | null | undefined): number | null {
+  if (value == null || (typeof value === "string" && (!value.trim() || value.trim() === "-"))) {
+    return null;
+  }
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 export default function AttributionPage() {
@@ -196,217 +204,24 @@ export default function AttributionPage() {
     setSelectedKey("");
   };
 
-  const waterfallOption = useMemo<EChartsOption>(() => {
-    const a = detail?.waterfall;
-    if (!a) return {};
-    return {
-      title: {
-        text: "下月销量预测构成拆解",
-        left: "center",
-        textStyle: { fontSize: 16, fontWeight: "bold", color: "#333" },
-      },
-      tooltip: {
-        trigger: "axis",
-        axisPointer: { type: "shadow" },
-        formatter: (params) => {
-          const items = Array.isArray(params) ? params : [params];
-          const bar = items[1] ?? items[0];
-          if (!bar) return "";
-          const idx = Number(bar.dataIndex ?? 0);
-          return `${bar.name}<br/>影响值 : ${a.labels[idx] ?? ""}`;
-        },
-      },
-      grid: { left: "5%", right: "5%", bottom: "8%", top: "48px", containLabel: true },
-      xAxis: {
-        type: "category",
-        data: a.xAxis,
-        axisTick: { show: false },
-        axisLine: { lineStyle: { color: "#d9d9d9" } },
-        axisLabel: {
-          color: "#666",
-          margin: 16,
-          interval: 0,
-          rotate: a.xAxis.length > 6 ? 20 : 0,
-        },
-      },
-      yAxis: { show: false },
-      series: [
-        {
-          name: "Placeholder",
-          type: "bar",
-          stack: "Total",
-          silent: true,
-          itemStyle: { borderColor: "transparent", color: "transparent" },
-          emphasis: { itemStyle: { borderColor: "transparent", color: "transparent" } },
-          data: a.placeholder,
-        },
-        {
-          name: "Value",
-          type: "bar",
-          stack: "Total",
-          barMaxWidth: 80,
-          label: {
-            show: true,
-            position: "top",
-            fontWeight: "bold",
-            color: "#333",
-            formatter: (p) => a.labels[Number(p.dataIndex)] ?? "",
-          },
-          data: a.values.map((v, i) => ({
-            value: v,
-            itemStyle: { color: a.colors[i] },
-          })),
-        },
-      ],
-    };
-  }, [detail]);
+  const waterfallOption = useMemo(
+    () => (detail?.waterfall ? buildWaterfallOption(detail.waterfall) : {}),
+    [detail],
+  );
 
-  const trendOption = useMemo<EChartsOption>(() => {
-    if (!trend?.periods?.length) return {};
-    const { periods, history, forecast, split_period: splitPeriod } = trend;
-    const hasValue = (value: unknown): value is number | string =>
-      typeof value === "number" ||
-      (typeof value === "string" && value.trim() !== "" && value !== "-");
-    const forecastData = [...forecast];
-    let lastHistoryIndex = -1;
-    let firstForecastIndex = -1;
-    history.forEach((value, index) => {
-      if (hasValue(value)) lastHistoryIndex = index;
-    });
-    forecast.forEach((value, index) => {
-      if (firstForecastIndex < 0 && hasValue(value)) firstForecastIndex = index;
-    });
-    let previousHistoryIndex = -1;
-    for (let index = lastHistoryIndex - 1; index >= 0; index -= 1) {
-      if (hasValue(history[index])) {
-        previousHistoryIndex = index;
-        break;
-      }
-    }
-    let nextForecastIndex = -1;
-    for (let index = firstForecastIndex + 1; index < forecast.length; index += 1) {
-      if (hasValue(forecast[index])) {
-        nextForecastIndex = index;
-        break;
-      }
-    }
-    const hasTransition =
-      lastHistoryIndex >= 0 &&
-      firstForecastIndex > lastHistoryIndex &&
-      lastHistoryIndex < forecastData.length;
-    const transitionSeries = hasTransition
-      ? {
-          name: "预测衔接",
-          type: "custom" as const,
-          coordinateSystem: "cartesian2d" as const,
-          silent: true,
-          z: 3,
-          data: [0],
-          renderItem: ((_, api) => {
-            const start = api.coord([periods[lastHistoryIndex], Number(history[lastHistoryIndex])]);
-            const end = api.coord([periods[firstForecastIndex], Number(forecast[firstForecastIndex])]);
-            const previous =
-              previousHistoryIndex >= 0
-                ? api.coord([previousHistoryIndex, Number(history[previousHistoryIndex])])
-                : start;
-            const next =
-              nextForecastIndex >= 0
-                ? api.coord([periods[nextForecastIndex], Number(forecast[nextForecastIndex])])
-                : end;
-            const tension = 0.24;
-            return {
-              type: "bezierCurve",
-              shape: {
-                x1: start[0],
-                y1: start[1],
-                // Match the incoming historical tangent and outgoing forecast
-                // tangent so the color change does not create a corner.
-                cpx1: start[0] + (start[0] - previous[0]) * tension,
-                cpy1: start[1] + (start[1] - previous[1]) * tension,
-                cpx2: end[0] - (next[0] - end[0]) * tension,
-                cpy2: end[1] - (next[1] - end[1]) * tension,
-                x2: end[0],
-                y2: end[1],
-              },
-              style: {
-                stroke: COLORS.success,
-                fill: "none",
-                lineWidth: 2,
-              },
-            };
-          }) as CustomSeriesRenderItem,
-        }
-      : null;
-    const markLine = splitPeriod
-      ? {
-          symbol: ["none", "none"],
-          label: { formatter: "预测起点", position: "end" as const },
-          lineStyle: { type: "dashed" as const, color: "#fa8c16" },
-          data: [{ xAxis: splitPeriod }],
-        }
-      : undefined;
-    return {
-      tooltip: {
-        trigger: "axis",
-        formatter: (params) => {
-          const items = Array.isArray(params) ? params : [params];
-          const lines = [items[0]?.name ?? ""];
-          for (const p of items) {
-            const val = p.value;
-            if (val === "-" || val === null || val === undefined) continue;
-            lines.push(`${p.marker}${p.seriesName}: ${Number(val).toLocaleString("zh-CN")}`);
-          }
-          return lines.join("<br/>");
-        },
-      },
-      legend: {
-        data: ["历史零售量", "预测销量"],
-        top: 0,
-        right: 0,
-        textStyle: { fontSize: 12, color: "#666" },
-      },
-      grid: { left: 48, right: 24, top: 36, bottom: 32 },
-      xAxis: {
-        type: "category",
-        boundaryGap: false,
-        data: periods,
-        axisLine: { lineStyle: { color: "#d9d9d9" } },
-        axisLabel: { color: "#666", fontSize: 11 },
-      },
-      yAxis: {
-        type: "value",
-        axisLine: { show: false },
-        splitLine: { lineStyle: { color: "#f0f0f0" } },
-        axisLabel: { color: "#999", fontSize: 11 },
-      },
-      series: [
-        {
-          name: "历史零售量",
-          type: "line",
-          smooth: true,
-          symbol: "circle",
-          symbolSize: 6,
-          connectNulls: false,
-          lineStyle: { width: 2, color: COLORS.primary },
-          itemStyle: { color: COLORS.primary },
-          data: history,
-          markLine,
-        },
-        {
-          name: "预测销量",
-          type: "line",
-          smooth: true,
-          symbol: "diamond",
-          symbolSize: 7,
-          connectNulls: false,
-          lineStyle: { width: 2, type: "dashed", color: COLORS.success },
-          itemStyle: { color: COLORS.success },
-          data: forecastData,
-        },
-        ...(transitionSeries ? [transitionSeries] : []),
-      ],
-    };
-  }, [trend]);
+  const trendOption = useMemo(
+    () =>
+      trend?.periods?.length
+        ? buildForecastTrendOption({
+            periods: trend.periods,
+            history: trend.history.map(nullableTrendValue),
+            forecast: trend.forecast.map(nullableTrendValue),
+            split_period: trend.split_period,
+            top_skus: [],
+          })
+        : {},
+    [trend],
+  );
 
   return (
     <div className="flex h-full min-h-0 flex-col" style={{ background: "#f0f2f5", color: "#333" }}>

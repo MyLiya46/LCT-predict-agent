@@ -40,6 +40,15 @@ def _add_detail(row: FcstForecastResult, version: str) -> WorkbenchDatasetRow:
     payload = _source_payload(row)
     payload.update(
         {
+            "version": version,
+            "month": period,
+            "forecast_period": row.horizon,
+            "sku": row.sku,
+            "channel": row.channel_l3,
+            "forecast_qty": row.final_value,
+            # The model does not predict price. This is the price input used
+            # by the forecast run and must remain named ``plan_price``.
+            "plan_price": row.plan_price,
             "预测月份": period,
             "品类": row.category,
             "系列": row.series,
@@ -100,7 +109,7 @@ def _add_history(row: FcstHistory, version: str) -> ForecastHistoryRow:
         channel_l3=row.channel_l3,
         sku=row.sku,
         retail_qty=row.qty,
-        retail_amt=None,
+        retail_amt=row.retail_amt,
         payload=_source_payload(row),
     )
 

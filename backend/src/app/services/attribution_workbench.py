@@ -19,6 +19,16 @@ def _number(value: Any, default: float = 0.0) -> float:
         return default
 
 
+def _nullable_number(value: Any) -> float | None:
+    """Normalize a measured value without turning a missing PG value into 0."""
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def _payload_value(payload: dict[str, Any] | None, *names: str) -> Any:
     payload = payload or {}
     for name in names:
@@ -221,12 +231,33 @@ async def sku_detail(
     baseline = _number(first.qty_lag1)
     predicted = _number(first.y_pred)
     impacts: dict[str, float] = defaultdict(float)
+    factor_details: list[dict[str, Any]] = []
     for row in month_rows:
         payload = row.payload or {}
         duplicate_marker = _payload_value(payload, "影响因子", "impact_factor", "feature")
         if duplicate_marker == "MA_vs_qty_lag1":
             continue
-        impacts[str(row.attr_type or "其他未分类")] += _number(row.impact)
+        factor_name = str(
+            row.attr_type
+            or _payload_value(payload, "factor_name", "因子名称", "影响因子")
+            or "其他未分类"
+        )
+        impact = _number(row.impact)
+        impacts[factor_name] += impact
+        factor_details.append(
+            {
+                "name": factor_name,
+                "factor_layer": _payload_value(payload, "factor_layer", "因子层级"),
+                "factor_type": _payload_value(payload, "factor_type", "因子类型") or factor_name,
+                "impact": round(impact, 1),
+                "direction": "正向" if impact >= 0 else "负向",
+                "horizon": str(row.horizon or ""),
+                "period": str(row.period or selected_period or ""),
+                "sku": sku,
+                "y_pred": round(_number(row.y_pred), 1),
+                "qty_lag1": round(_number(row.qty_lag1), 1),
+            }
+        )
     sorted_impacts = sorted(impacts.items(), key=lambda item: abs(item[1]), reverse=True)
     # Keep the API list in the model's source order.  Driver ranking remains
     # magnitude-based below, while callers can compare the typed factors with
@@ -261,6 +292,8 @@ async def sku_detail(
         "attribution_text": attribution_text,
         "waterfall": _build_waterfall(baseline, predicted, sorted_impacts),
         "type_impacts": type_impacts,
+        "factors": factor_details,
+        "factor_details": factor_details,
     }
 
 
@@ -285,10 +318,15 @@ async def trend_series(
         for row in history_result.scalars().all()
         if _row_matches(row, channel_l1=channel_l1, channel_l3=channel_l3)
     ]
-    history_by_period: dict[str, float] = {}
+    history_by_period: dict[str, float | None] = {}
     for row in history_rows:
         if row.period:
-            history_by_period[str(row.period)] = history_by_period.get(str(row.period), 0.0) + _number(row.retail_qty)
+            period = str(row.period)
+            value = _nullable_number(row.retail_qty)
+            if period not in history_by_period:
+                history_by_period[period] = value
+            elif value is not None:
+                history_by_period[period] = round((history_by_period[period] or 0.0) + value, 1)
     forecast_by_period: dict[str, float] = {}
     horizon_by_period: dict[str, str] = {}
     for row in forecast:
@@ -308,12 +346,24 @@ async def trend_series(
         ),
     )[:6]
     periods = sorted(set(history_periods) | set(forecast_periods), key=_period_sort_key)
+    forecast_curve = [
+        {
+            "period": period,
+            "horizon": horizon_by_period.get(period, ""),
+            "forecast_qty": round(forecast_by_period[period], 1),
+            "qty": round(forecast_by_period[period], 1),
+        }
+        for period in forecast_periods
+    ]
     return {
         "periods": periods,
-        "history": [round(history_by_period[period], 1) if period in history_by_period else "-" for period in periods],
-        "forecast": [round(forecast_by_period[period], 1) if period in forecast_by_period else "-" for period in periods],
+        # JSON null is intentional: the chart renderer must show a gap rather
+        # than a fabricated zero for a month absent from PG history/forecast.
+        "history": [round(history_by_period[period], 1) if history_by_period.get(period) is not None else None for period in periods],
+        "forecast": [round(forecast_by_period[period], 1) if forecast_by_period.get(period) is not None else None for period in periods],
         "history_count": len(history_periods),
         "forecast_count": len(forecast_periods),
         "horizons": [horizon_by_period.get(period, "") for period in forecast_periods],
         "split_period": forecast_periods[0] if forecast_periods else None,
+        "forecast_curve": forecast_curve,
     }

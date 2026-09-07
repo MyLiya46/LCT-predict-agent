@@ -836,17 +836,66 @@ export async function fetchAttributionTrend(
   return json<AttributionTrend>(`/api/attribution/trend${q ? `?${q}` : ""}`);
 }
 
-export type WhatIfBaselineItem = {
+export type WhatIfDetail = {
+  version?: string | null;
+  month?: string | null;
+  period?: string | null;
+  forecast_period?: string | null;
   sku: string;
+  channel?: string | null;
   channel_l3?: string | null;
   category?: string | null;
+  forecast_qty: number;
+  baseline_price: number | null;
+  cost_price: number | null;
+  baseline_qty?: number;
+  plan_price?: number | null;
+  baseline_amount?: number | null;
+  sim_qty?: number;
+  sim_price?: number | null;
+  sim_amount?: number | null;
+  sim_gross_profit?: number | null;
+  price_status?: string;
+  cost_status?: string;
+  elasticity?: {
+    coefficient: number | null;
+    volatility_class: string;
+    elasticity_class: string;
+    ed: number;
+    ed_source: string;
+  };
+};
+
+export type WhatIfBaselineItem = {
+  version?: string | null;
+  sku: string;
+  month?: string | null;
+  channel?: string | null;
+  channel_l3?: string | null;
+  channels?: string[];
+  category?: string | null;
   period?: string | null;
-  status: string;
-  series: string;
-  plan_price: number | null;
+  forecast_period?: string | null;
+  status?: string | null;
+  series?: string | null;
+  forecast_qty?: number;
+  baseline_price?: number | null;
+  cost_price?: number | null;
+  plan_price?: number | null;
   baseline_qty: number;
   baseline_amount: number | null;
   sim_qty: number;
+  sim_price?: number | null;
+  sim_amount?: number | null;
+  sim_gross_profit?: number | null;
+  details?: WhatIfDetail[];
+  price_coverage_qty?: number;
+  cost_coverage_qty?: number;
+  gross_profit?: number | null;
+  gross_coverage_qty?: number;
+  price_status?: string;
+  cost_status?: string;
+  gross_profit_status?: string;
   elasticity?: {
     coefficient: number | null;
     volatility_class: string;
@@ -862,6 +911,21 @@ export type WhatIfBaselineSummary = {
   months: string[];
   qty_series: number[];
   amount_series: number[];
+  gross_profit?: number | null;
+  gross_margin?: number | null;
+  price_coverage_qty?: number;
+  cost_coverage_qty?: number;
+  gross_coverage_qty?: number;
+  price_status?: string;
+  cost_status?: string;
+  gross_profit_status?: string;
+  item_count?: number;
+  visible_item_count?: number;
+  detail_count?: number;
+  inventory_turnover_days?: number | null;
+  inventory_turnover_label?: string | null;
+  inventory_turnover_status?: string;
+  inventory_turnover_reason?: string | null;
 };
 
 export type WhatIfBaseline = {
@@ -925,20 +989,31 @@ export type WhatIfModelRow = {
   category?: string | null;
   status?: string | null;
   baseline_qty: number;
-  plan_price?: number | null;
+  baseline_price?: number | null;
+  cost_price?: number | null;
+  sim_amount?: number | null;
+  sim_gross_profit?: number | null;
   elasticity_coef?: number | null;
   elasticity_class?: string | null;
+  details?: WhatIfDetail[];
   strategy_id?: string | null;
   param?: string | null;
   traffic_tier?: string | null;
   target_qty?: number;
+  target_revenue?: number | null;
 };
 
 export type WhatIfModelResultRow = WhatIfModelRow & {
   strategy_id: string;
   strategy_name?: string;
   sim_qty: number;
-  sim_price: number;
+  sim_price: number | null;
+  price_coverage_qty?: number;
+  price_status?: string;
+  cost_coverage_qty?: number;
+  cost_status?: string;
+  gross_coverage_qty?: number;
+  gross_profit_status?: string;
   effect_note?: string;
   gap?: number;
 };
@@ -964,12 +1039,14 @@ export async function submitWhatIfSimulation(rows: WhatIfModelRow[]) {
 
 export async function submitWhatIfOptimization(
   targetQty: number,
+  targetRevenue: number | undefined,
   rows: WhatIfModelRow[],
 ) {
   return json<{ task_id: string; status: string }>("/api/whatif/optimize", {
     method: "POST",
     body: JSON.stringify({
       target_qty: targetQty,
+      ...(targetRevenue != null ? { target_revenue: targetRevenue } : {}),
       param: null,
       traffic_tier: null,
       rows,

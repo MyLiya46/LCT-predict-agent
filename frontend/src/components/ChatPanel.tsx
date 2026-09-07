@@ -26,7 +26,7 @@ import {
   X,
 } from "@phosphor-icons/react";
 import { useAppStore } from "../store";
-import type { ChatMessage, Intent, SessionSummary } from "../types";
+import type { ChatMessage, SessionSummary } from "../types";
 import { MessageResultCard, hasInlineResult } from "./MessageResultCard";
 
 const RECOMMENDED_PROMPTS = [
@@ -214,15 +214,7 @@ export function ChatPanel({ embedded = false }: { embedded?: boolean }) {
   const askFollowUp = (question: string) => {
     const q = question.trim();
     if (!q || loading) return;
-    let prior_intent: Intent | undefined;
-    for (let i = messages.length - 1; i >= 0; i -= 1) {
-      const m = messages[i];
-      if (m.role === "assistant" && m.envelope?.intent) {
-        prior_intent = m.envelope.intent;
-        break;
-      }
-    }
-    sendMessage(q, { ...params, ...(prior_intent ? { prior_intent } : {}) });
+    sendMessage(q, { ...params });
   };
 
   const lastFollowUps = (() => {

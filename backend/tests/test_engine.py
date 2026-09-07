@@ -13,11 +13,18 @@ import respx
 from sqlalchemy import select
 
 from app.engine.flow import ActiveFlowRegistry
-from app.engine.loop import RunContext, run_flow
+from app.engine.loop import RunContext, _user_facing_final_text, run_flow
 from app.models import Conversation, Message, MessageEvent, Tool, User
 from app.sse.hub import Hub
 from app.tools.registry import create_tool
 from app.tools.scenario import get_scenario
+
+
+def test_user_facing_final_text_does_not_leak_need_input_marker():
+    text = _user_facing_final_text("模型说明：need_input(forecast_month)，请补充月份。")
+
+    assert "need_input" not in text
+    assert "预测基准月" in text
 
 
 async def _prepare_env(factory) -> tuple[str, str, object]:
@@ -129,7 +136,7 @@ async def test_run_flow_interrupt_safepoint(db_session_factory):
 @pytest.mark.asyncio
 async def test_active_flow_registry_conflict(db_session_factory):
     registry = ActiveFlowRegistry()
-    flow1 = await registry.register("conv-x")
+    await registry.register("conv-x")
     assert registry.active("conv-x") is True
     from app.utils.errors import ConflictError
 

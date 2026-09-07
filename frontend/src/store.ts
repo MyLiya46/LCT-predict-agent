@@ -6,7 +6,11 @@ import { useAuthStore } from "./authStore";
 /** 是否含右侧工作区可回看内容（图表或数据表） */
 export function hasWorkbenchContent(env?: AgentResultEnvelope | null): boolean {
   if (!env) return false;
-  return Boolean(env.table || env.chart);
+  if (env.update_workspace === false) return false;
+  return Boolean(
+    env.chart ||
+      (env.table && (env.table.rows.length > 0 || env.table.columns.length > 0)),
+  );
 }
 
 interface AppState {

@@ -8,9 +8,9 @@
 2. `sync_history_csv`：历史 CSV（data/ads_cbg_rt_fcst_retail_stat.csv）离线灌 fcst_history。
 
 命名映射（单一出处）：
-  历史：period_id→period, category_name→category, product_mode_name→sku, channel_name_l3→channel_l3, retail_qty→qty
-  预测：horizon/月份/品类/series/status/3级渠道/型号-CRM最新名称/y_pred →
-        horizon/forecast_month/category/series/status/channel_l3/sku/final_value
+  历史：period_id→period, category_name→category, product_mode_name→sku, channel_name_l3→channel_l3, retail_qty→qty, retail_amt→retail_amt
+  预测：horizon/月份/品类/series/status/3级渠道/型号-CRM最新名称/y_pred/plan_price →
+        horizon/forecast_month/category/series/status/channel_l3/sku/final_value/plan_price
   归因：对齐 attribution.py format_attribution_sheet 的 rename（factor_name/factor_type/shap_value/contribution_pct/value_T 等）。
 
 PG 引擎独立于 MySQL ENGINE_URL：新增 BACKEND_PG_URL（默认 app/app@127.0.0.1:5432/agent_platform），
@@ -60,6 +60,7 @@ def forecast_to_pg_frame(detailed_results: pd.DataFrame) -> pd.DataFrame:
     out["channel_l3"] = df.get("3级渠道")
     out["sku"] = df.get("型号-CRM最新名称")
     out["final_value"] = pd.to_numeric(df.get("y_pred"), errors="coerce") if "y_pred" in df.columns else None
+    out["plan_price"] = pd.to_numeric(df.get("plan_price"), errors="coerce") if "plan_price" in df.columns else None
     return out
 
 
@@ -132,6 +133,7 @@ def history_to_pg_frame(csv_path: str) -> pd.DataFrame:
     out["channel_l3"] = raw["channel_name_l3"].astype(str)
     out["sku"] = raw["product_mode_name"].astype(str)
     out["qty"] = pd.to_numeric(raw["retail_qty"], errors="coerce")
+    out["retail_amt"] = pd.to_numeric(raw["retail_amt"], errors="coerce")
     return out
 
 

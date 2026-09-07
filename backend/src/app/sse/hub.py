@@ -50,6 +50,11 @@ class SSEStreamer:
                 event, data, seq = await asyncio.wait_for(self.queue.get(), timeout=SSE_PING_INTERVAL_S)
                 yield sse_frame(event, data, seq)
             except asyncio.TimeoutError:
+                # A long-running Agent turn may legitimately have no business
+                # event for several seconds.  The ping is proof that this SSE
+                # consumer is still alive, so keep it out of Hub's stale
+                # cleanup path.
+                self.mark_activity()
                 yield ": ping\n\n"
 
     async def recv(self) -> tuple[str, dict, Optional[int]] | None:
@@ -61,6 +66,12 @@ class SSEStreamer:
             self.mark_activity()
             return event, data, seq
         except asyncio.TimeoutError:
+            # `recv()` is also used by the chat collector, which consumes the
+            # ping internally instead of sending it to the browser.  Refresh
+            # activity here as well; otherwise a cold forecast can finish
+            # after five seconds and its terminal event would be discarded as
+            # if the client had disconnected.
+            self.mark_activity()
             return None
 
     def close(self) -> None:

@@ -22,12 +22,13 @@ export function stripRelatedSuggestions(markdown: string): string {
 }
 
 export function InsightBody({ envelope }: { envelope: AgentResultEnvelope }) {
-  const markdown = stripRelatedSuggestions(envelope.text.markdown || "");
+  const markdown = stripRelatedSuggestions(envelope.text?.markdown || "");
   return (
     <div>
       {envelope.meta && (
         <div className="mb-2 font-mono text-[11px] text-muted-fg">
-          {envelope.meta.tool} · {envelope.meta.latency_ms}ms
+          {envelope.meta.tool || "Agent"}
+          {envelope.meta.latency_ms != null ? ` · ${envelope.meta.latency_ms}ms` : null}
         </div>
       )}
       <div className="insight-prose">
@@ -46,14 +47,14 @@ export function InsightPanel() {
   }
   if (!envelope) return null;
 
-  const { text } = envelope;
+  const text = envelope.text;
 
   return (
     <section className="rounded-xl border border-border bg-card p-4 shadow-panel">
       <div className="mb-3 flex items-center justify-between">
         <div className="flex items-center gap-2 text-sm font-semibold">
           <ArticleNyTimes size={18} className="text-primary" aria-hidden />
-          {text.title || "分析解读"}
+          {text?.title || "分析解读"}
         </div>
       </div>
       <InsightBody envelope={envelope} />

@@ -1,961 +1,875 @@
-# PRD：通用 AI Agent 平台（内部人机对话助手）
+# PRD：LCT Predict Agent 销售预测与分析工作台
 
-> 版本：v0.10
-> 日期：2026-08-21  
+> 版本：v1.0
+> 日期：2026-09-07
+> 文档状态：基于当前代码与数据事实重写
+> 适用范围：内部私有化部署的业务分析、预测、归因和 What-if 决策工作台
 
----
+本文替代旧版《通用 AI Agent 平台（内部人机对话助手）》PRD。旧版以通用平台骨架为主，已经不能准确描述当前产品的数据边界、模型结果缓存、工作台页面和 HTTP API。
 
-## 目录
+本文以以下资料为事实依据：
 
-- [PRD：通用 AI Agent 平台（内部人机对话助手）](#prd通用-ai-agent-平台内部人机对话助手)
-  - [目录](#目录)
-  - [1. 概述](#1-概述)
-    - [1.1 背景与定位](#11-背景与定位)
-    - [1.2 目标与非目标](#12-目标与非目标)
-    - [1.3 本期明确不做（禁止展开）](#13-本期明确不做禁止展开)
-    - [1.4 术语表](#14-术语表)
-    - [1.5 假设汇总（可检索）](#15-假设汇总可检索)
-  - [2. 目标用户与会话角色](#2-目标用户与会话角色)
-    - [2.1 用户画像](#21-用户画像)
-    - [2.2 双端功能边界](#22-双端功能边界)
-  - [3. 功能分级清单（P0/P1/P2）](#3-功能分级清单p0p1p2)
-    - [3.1 P0 MVP 功能](#31-p0-mvp-功能)
-    - [3.2 P1 增强功能](#32-p1-增强功能)
-    - [3.3 P2 远期功能](#33-p2-远期功能)
-    - [3.4 禁止展开条目](#34-禁止展开条目)
-  - [4. 总体架构与技术选型](#4-总体架构与技术选型)
-    - [4.1 顶层架构图](#41-顶层架构图)
-    - [4.2 模块划分（高内聚 · 低耦合 · 依赖单向）](#42-模块划分高内聚--低耦合--依赖单向)
-    - [4.3 技术栈与选型推荐](#43-技术栈与选型推荐)
-  - [5. 用户端 P0 详设](#5-用户端-p0-详设)
-    - [5.1 功能模块](#51-功能模块)
-    - [5.2 接口清单](#52-接口清单)
-    - [5.3 主流程时序](#53-主流程时序)
-  - [6. 管理员端 P0 详设](#6-管理员端-p0-详设)
-    - [6.1 功能模块](#61-功能模块)
-    - [6.2 接口清单](#62-接口清单)
-  - [7. Agent 执行引擎与工具编排](#7-agent-执行引擎与工具编排)
-    - [7.1 Agent 执行循环](#71-agent-执行循环)
-    - [7.2 工具调用协议](#72-工具调用协议)
-    - [7.3 错误重试与降级策略](#73-错误重试与降级策略)
-    - [7.4 中断与恢复](#74-中断与恢复)
-    - [7.5 场景编排](#75-场景编排)
-    - [7.6 自定义预测模型接入规范](#76-自定义预测模型接入规范)
-  - [8. 数据源接入与沙箱隔离](#8-数据源接入与沙箱隔离)
-    - [8.1 结构化数据源接入](#81-结构化数据源接入)
-    - [8.2 沙箱隔离](#82-沙箱隔离)
-  - [9. 权限与隔离体系](#9-权限与隔离体系)
-    - [9.1 RBAC 权限模型](#91-rbac-权限模型)
-    - [9.2 权限矩阵](#92-权限矩阵)
-    - [9.3 三类隔离闭环](#93-三类隔离闭环)
-    - [9.4 审计与越权响应](#94-审计与越权响应)
-  - [10. 全链路追溯日志](#10-全链路追溯日志)
-    - [10.1 追溯目标](#101-追溯目标)
-    - [10.2 事件模型与字段](#102-事件模型与字段)
-    - [10.3 还原能力验证](#103-还原能力验证)
-  - [11. 数据模型与主流程](#11-数据模型与主流程)
-    - [11.1 核心实体概览](#111-核心实体概览)
-    - [11.2 关键数据表字段](#112-关键数据表字段)
-    - [11.3 主流程时序](#113-主流程时序)
-  - [12. 接口规范](#12-接口规范)
-    - [12.1 接口约定](#121-接口约定)
-    - [12.2 用户端接口](#122-用户端接口)
-    - [12.3 管理员端接口](#123-管理员端接口)
-    - [12.4 SSE 事件协议](#124-sse-事件协议)
-    - [12.5 鉴权与错误码](#125-鉴权与错误码)
-  - [13. 部署与运维](#13-部署与运维)
-    - [13.1 部署拓扑与 compose 编排](#131-部署拓扑与-compose-编排)
-    - [13.2 数据库初始化与依赖顺序](#132-数据库初始化与依赖顺序)
-    - [13.3 环境与密钥管理](#133-环境与密钥管理)
-    - [13.4 健康检查、监控与备份](#134-健康检查监控与备份)
-  - [14. 路线图与验收要点](#14-路线图与验收要点)
-    - [14.1 里程碑总览](#141-里程碑总览)
-    - [14.2 P0 验收清单](#142-p0-验收清单)
-    - [14.3 P1 / P2 节奏建议](#143-p1--p2-节奏建议)
-  - [15. 风险与开放问题](#15-风险与开放问题)
-    - [15.1 风险清单](#151-风险清单)
-    - [15.2 开放问题](#152-开放问题)
-  - [附录 A：双端权限矩阵核验表](#附录-a双端权限矩阵核验表)
-  - [附录 B：追溯日志字段还原对照](#附录-b追溯日志字段还原对照)
+1. docs/prd_workbench.md：工作台业务心智模型和计算口径；
+2. docs/data-inspect.md：开发期数据来源、PG 落点、数据完整性和已知限制；
+3. backend/src/app/api/：当前注册的 FastAPI 路由、权限和请求模型；
+4. docs/api-contract.md：当前 HTTP 字段、返回结构和实现限制的详细契约。
+
+本文中的“已实现”表示当前 API 或服务已有对应实现；“迁移中”表示代码已有部分能力，但尚未满足统一数据事实或发布验收；“目标”表示产品必须达到的行为。
 
 ---
 
-## 1. 概述
+## 1. 产品定义
 
-### 1.1 背景与定位
+### 1.1 产品定位
 
-技术部门为业务部门搭建一个人机对话智能助手平台，首期承载两个业务场景：
+LCT Predict Agent 是面向内部业务人员的销售预测与分析工作台。它把历史销售事实、未来预测、预测归因、价格 What-if 和策略优化放在同一条 SKU 月度时间轴上，并提供自然语言入口和可追溯执行过程。
 
-1. 用户通过自然语言对话，**自动查询历史销售数据**；
-2. 调用**销售预测工具**完成预测，结果返回前端**可视化展示**；
-3. 全过程**可追溯**——用户能看到「发出一条消息后，后端执行了哪些工具、每步结果是什么、最终返回了什么」。
+产品的最小业务单元是：
 
-平台定位为**通用 AI Agent 平台**（形态参考 ChatGPT 网页端），面向公司内部团队**私有化部署**，采用「用户端 + 管理员端多角色设计」，并按通用 Agent 平台能力标准搭建，为后续接入更多业务工具（如自定义预测模型）预留高扩展性。
+~~~text
+SKU × 渠道 × 月份
+~~~
 
-**为什么从销售数据场景起步**：它天然覆盖 Agent 平台三要素——自然语言理解（查询意图）、工具调用（数据查询/预测）、结构化结果可视化（表格/图表），是验证平台核心链路最集约的样本；同时为后续通用工具接入沉淀协议与隔离能力。
+没有渠道维度时退化为 SKU × 月份。历史和未来不能被拆成两个互不相干的页面：历史销售提供背景，预测提供 baseline，归因解释预测变化，What-if 和优化在 baseline 上评估有限策略。
 
-### 1.2 目标与非目标
+### 1.2 用户价值
 
-| 目标 | 非目标 |
+用户完成一次分析时，应能够回答以下问题：
+
+- 过去某个品类、SKU、渠道和月份实际卖了多少、卖了多少钱？
+- 某个预测版本未来数月预计卖多少、使用什么价格？
+- 预测结果相对历史基线为什么变化？哪些因子贡献最大？
+- 如果采用某种价格或流量策略，销量、销售额和毛利会怎样变化？
+- 在销量或销售额目标下，系统推荐哪一个有限策略？
+- 这些数字来自哪一份数据、哪个预测版本、哪个工具调用？
+
+### 1.3 本期目标
+
+| 目标 | 验收方向 |
 |---|---|
-| 交付可用的对话查询 + 销售预测 MVP | 公网计费、多租户、开放注册市场 |
-| 全链路可追溯（每步工具执行可还原） | 公网直接暴露、开放 API（P2 再议） |
-| 双端多角色 + RBAC 权限模型闭环 | 文档型 RAG 知识库（P1） |
-| Docker Compose 一键私有化部署 | SQL 直连数据源（P1） |
-| 多供应商 LLM 抽象层就位 | 管理台数据看板（P1）等 P1/P2 清单内容 |
+| 建立统一数据事实 | 七张开发基座表同步并标准化到 PostgreSQL；业务查询、模型输入和 What-if 基线优先使用 PG |
+| 提供可用分析工作台 | 支持数据集浏览、筛选、分页表格、预测趋势和结果详情 |
+| 打通预测到归因 | 预测结果和归因结果按版本、月份、SKU、渠道写入/同步为 PG 结果缓存 |
+| 提供规则式决策模拟 | 基于预测 baseline 执行有限策略模拟和离散策略搜索，不重新训练预测模型 |
+| 提供自然语言入口 | Chat 可以复用同一套 PG 语义数据、预测、归因、模拟和优化能力 |
+| 保留全过程证据 | 用户看到执行状态和结构化结果；追溯事件能够还原工具、入参、结果和错误 |
+| 保证内部数据隔离 | 普通用户只能访问自己的会话和追溯；管理员操作可审计，敏感配置脱敏 |
 
-### 1.3 本期明确不做（禁止展开）
+### 1.4 非目标
 
-- 公网计费、多租户、开放注册市场、公网直接暴露；
-- 普通用户自助注册为管理员；
-- 自定义角色界面化配置（RBAC 骨架保留，P1 再做）；
-- RAG 文档知识库、SQL 直连、多模型切换、数据看板、审计导出等（列入 3.2/3.3）。
+本期不将以下能力描述为已交付范围：
 
-### 1.4 术语表
+- 公网开放、计费、开放注册市场、多租户隔离；
+- 业务用户直接连接任意 SQL 数据库；
+- 文档 RAG、知识库问答和通用插件市场；
+- What-if 过程中重新训练或重新运行预测模型；
+- 把归因结果宣传为严格因果效应；
+- 没有未来库存和 COGS 数据时计算真实库存周转或库存优化；
+- 连续空间中的全局最优定价；
+- 通过上传文件临时改变任意历史事实而不产生版本和审计；
+- 将当前接口中的占位字段、历史兜底价或模型任务结果误称为完整业务事实。
 
-| 缩写 | 全称/中文 | 说明 |
-|---|---|---|
-| Agent | AI Agent | 能自主规划、调用工具并完成任务的智能体 |
-| LLM | Large Language Model，大语言模型 | 对话与任务拆解的推理基座 |
-| RAG | Retrieval-Augmented Generation，检索增强生成 | 文档外挂知识库技术，P1 再做 |
-| JWT | JSON Web Token | 无状态访问令牌，本平台认证基础 |
-| OAuth | Open Authorization | 授权协议，P1 接入 GitHub 企业登录 |
-| RBAC | Role-Based Access Control，基于角色的访问控制 | 本平台权限模型 |
-| SSE | Server-Sent Events | HTTP 单向事件流，用于流式输出 |
-| IAM | Identity and Access Management | 身份与访问管理（延伸概念） |
-| JSONB | PostgreSQL 二进制 JSON 类型 | 存储工具入参/结果、事件链 |
-| SQL | Structured Query Language | 结构化查询语言 |
-| Worker | 后台任务执行单元 | 平台独立于 API 的异步执行进程，P0 用轻量进程内队列，P1 升级为独立进程 |
-| MCP | 预留将标注为「内部工具协议即可」 | 工具协议扩展点，本期不使用 |
+### 1.5 产品原则
 
-（补充：`BFF` = Backend for Frontend，前端网关；`ORM` = Object-Relational Mapping 对象关系映射；`ER` = Entity-Relationship 实体关系。）
-
-### 1.5 假设汇总（可检索）
-
-| 编号 | 假设内容 | 影响范围 |
-|---|---|---|
-| H1 | 内部注册用户 ≤200，同时在线 ≤50，并发工作会话 ≤30；单机/单实例可承载，预留水平扩容 | 容量设计 |
-| H2 | 销售数据存放于内部数据服务：HTTP API + JSON 返回（如 `http://sales-data.internal/api/v1/query`），P0 内网免登 + 服务账号 Token 访问；SQL 直连放 P1 | 数据源接入 |
-| H3 | 历史对话默认保留 180 天，到期归档/删除；审计日志保留 365 天，均可配置 | 数据保留 |
-| H4 | 管理员端首版 = 最小可用管理台（用户管理 + 工具/数据源管理 + LLM 配置 + 日志审计查看），统计图表类放 P1 | 管理端范围 |
-| H5 | 模型服务采用 OpenAI 协议兼容接口（`/v1/chat/completions`、`/v1/models`），自建或第三方供应商均可 | LLM 接入 |
-| H6 | P0 允许邮箱+密码自助注册，仅限内部邮箱后缀白名单；新用户默认普通用户角色 | 账号体系 |
-| H7 | 部署形态为内网单台服务器（或多机共享入口）Docker Compose，PostgreSQL 单实例 | 部署形态 |
-| H8 | 工具执行语言为 Python 3.11，与后端一致，打包为独立镜像进沙箱 | 沙箱工具 |
-| H9 | 个人设置默认值：注册时昵称默认取邮箱 @ 前缀；昵称 1~32 字符可含中文；P0 头像菜单仅展示「基础设置」入口，模型设置入口随 P1 上线 | 个人设置（【变更 v0.10】） |
-| H10 | BYOK 安全与降级：用户模型 API Key 与管理员 LLM 配置同标准加密存储、仅本人可见；用户模型不可用时自动降级平台默认模型 | 用户级模型配置（P1 预留） |
-| H11 | 置顶交互默认值：置顶无数量上限；置顶/取消置顶后列表即时刷新排序 | 会话列表（【变更 v0.10】） |
+1. **一个事实源**：开发期 CSV/XLSX 是导入渠道，启动同步后的业务事实源是 PostgreSQL。
+2. **结果不反推**：预测和归因读取已经写入 PG 的模型结果缓存，不从历史表临时反推预测结果。
+3. **粒度先于展示**：关联前先按各数据源自身粒度去重或聚合，再用 LEFT JOIN 形成 SKU 月度视图。
+4. **缺失可见**：价格、成本、弹性和毛利必须带覆盖率、来源或状态，缺失不能静默变成 0 或假装完整。
+5. **对话与页面同源**：Chat 返回的数字、表格和图表必须来自页面使用的语义数据和服务。
+6. **可追溯优先**：每次预测、工具调用、上游失败和管理员查看都能够定位到请求、用户和时间。
 
 ---
 
-## 2. 目标用户与会话角色
+## 2. 用户、角色与核心流程
 
-### 2.1 用户画像
+### 2.1 角色
 
-**业务人员（普通用户）**
-- 特征：日均 5~10 次对话，查询历史销售、发起预测；对技术细节无感知。
-- 诉求：自然语言到达结果、可视化清晰、关注追溯解释（知道背后用了什么数据/模型）。
-- 行为：新建/管理会话，看重流式反馈与透明执行过程。
-
-**技术管理员（管理员）**
-- 特征：技术部/平台运营人员，负责账号、工具、模型、日志日常治理。
-- 诉求：用户管理、工具/数据源启停、LLM 配置、全量审计检索。
-- 行为：操作留痕、越权拦截、异常定位。
-
-### 2.2 双端功能边界
-
-| 能力域 | 用户端（普通用户） | 管理员端（管理员） |
+| 角色 | 主要任务 | 数据范围 |
 |---|---|---|
-| 会话/对话 | ✅ 对话、管理自己会话 | ✅ 只读审计全量会话/日志 |
-| 追溯日志 | ✅ 查看自己会话的执行过程 | ✅ 全量检索 + 审计留痕 |
-| 数据源/工具 | ❌ 不可见/不可配置 | ✅ 注册、启停、参数配置、连通性测试 |
-| LLM 配置 | ❌（P1 预留：BYOK 用户级模型配置，见 3.2 P1-10） | ✅ 供应商/端点/Key/模型/默认模型/健康检查 |
-| 系统参数 | ❌ | ✅ 保留天数、并发上限、默认模型等 |
-| 管理台首页 | ❌ | ✅ 导航入口（按权限点渲染） |
-| 个人设置 | ✅ 基础设置（昵称/密码修改、邮箱只读展示）；模型设置页 P1 预留 | ✅ 基础设置（与用户端同套页面，【变更 v0.10】） |
+| 业务分析人员 | 浏览历史、查看预测、阅读归因、运行 What-if、通过 Chat 提问 | 自己的会话；业务数据按产品授权范围使用 |
+| 预测/定价人员 | 选择版本和 SKU，比较计划价、模拟策略和目标差距 | 与分析人员相同，重点使用预测、归因和 What-if 页面 |
+| 技术管理员 | 管理用户、数据源、工具、场景、LLM provider 和系统参数；排查执行链路 | 全量会话和审计只读查询；管理动作写审计 |
+| 平台运维人员 | 维护 PostgreSQL、模型服务、Agent 网关、What-if 服务和沙箱 daemon | 通过健康检查、日志和部署配置操作，不绕过应用权限读取业务数据 |
+
+### 2.2 用户端主流程
+
+#### 流程 A：历史数据分析
+
+1. 用户打开工作台并选择数据集；
+2. 通过品类、渠道、SKU、月份、系列、版本或状态筛选；
+3. 读取分页表格，必要时查看图表；
+4. 历史价格按有效销量和销售额派生；
+5. 用户可将同一问题发送给 Chat，Chat 返回同源表格、图表或摘要。
+
+#### 流程 B：预测和归因
+
+1. 用户选择品类、预测月份、渠道/SKU、预测窗口；
+2. 提交预测任务或通过 Chat 发起预测；
+3. 模型完成后，后端校验预测和归因行并 relay 到 PG；
+4. 工作台按版本读取 fcst_detail；
+5. 归因页按版本和 SKU 读取 attribution_analysis_rows；
+6. 用户查看预测曲线、历史对照、因子 waterfall 和趋势。
+
+#### 流程 C：What-if 和策略优化
+
+1. 用户选择品类和预测版本；
+2. 后端从 PG 加载 baseline、价格、成本和弹性覆盖状态；
+3. 用户读取有效策略目录；
+4. simulate 对 baseline 明细应用一个有限策略；
+5. optimize 在有限策略目录中搜索接近目标的方案；
+6. 用户查看任务进度、结果、假设、来源和覆盖率。
+
+#### 流程 D：可追溯 Chat
+
+1. 用户在会话中发送自然语言；
+2. Agent 判断历史、预测、归因、模拟或优化意图；
+3. Agent 调用内部工具并把结构化结果投影为统一 envelope；
+4. 前端通过同步接口或 SSE 显示文本、状态、工具步骤和最终表格/图表；
+5. 用户可以打开追溯面板或导出 Markdown 报告。
+
+### 2.3 管理流程
+
+管理员登录后可以：
+
+- 创建、停用或测试内部数据源；
+- 注册、修改、停用和测试工具；
+- 修改场景的提示词、模型引用和启用状态；
+- 管理 LLM provider、默认模型、fallback 和健康状态；
+- 管理用户和密码；
+- 查询会话、消息、trace、审计记录和管理员实时流；
+- 修改允许热更新的系统参数。
+
+会话、消息、trace、审计查询和管理员实时流属于查看审计范围，应写入 audit.view；查看行为不应改变业务会话和消息。
 
 ---
 
-## 3. 功能分级清单（P0/P1/P2）
+## 3. 数据基座和事实边界
 
-### 3.1 P0 MVP 功能
+### 3.1 目标数据流
 
-**P0-A 账号与权限体系**
+~~~text
+CSV/XLSX 开发期输入
+    → 读取、校验、标准化、版本化导入
+    → PostgreSQL 七张基座表
+          ├─ 工作台数据集查询
+          ├─ 预测模型输入
+          └─ What-if baseline 和参考参数
 
-| 编号 | 功能 | 目标 | 分级理由 |
+预测模型
+    → fcst_forecast_result / fcst_attribution
+    → backend relay：版本替换 + 行数/字段校验
+    → fcst_detail / attribution_analysis_rows
+          ├─ 预测页
+          ├─ 归因页
+          ├─ Chat 内部工具
+          └─ What-if baseline
+
+用户请求
+    → FastAPI API / Chat façade
+    → PG 语义查询或模型/What-if 上游
+    → 结构化 envelope、SSE 状态和追溯事件
+~~~
+
+文件只负责提供开发期或受控上传的输入。业务接口不得在请求处理中自行打开 CSV/XLSX，也不能在字段缺失时临时切换到另一套未标准化字段。
+
+### 3.2 当前迁移状态
+
+当前代码已提供 workbench_sync_on_startup 和 seed_workbench，但默认配置关闭；seed_workbench 仍存在 ROW_CAPS，模型 loader 仍有直接读取 CSV 的路径。因此当前 PG 快照只能视为开发样本，不能宣称为七张基座的完整业务事实。
+
+发布前必须完成：
+
+- 将正式启动同步设为明确的部署入口，并在同步失败时阻止服务使用陈旧缓存；
+- 取消各数据集导入行数截断，保留源行数、导入行数和校验结果；
+- 统一模型输入 loader，从 PG 标准化数据读取；
+- 对预测和归因 relay 执行版本、月份、SKU、渠道和行数的一致性校验；
+- 使用版本化、原子替换，避免半版本数据被页面或 What-if 读取；
+- 将成本和价格弹性参考数据纳入同一套可追溯导入流程。
+
+### 3.3 七张开发基座表
+
+| dataset | 主要来源 | 业务粒度/核心字段 | 主要用途 |
 |---|---|---|---|
-| P0-A1 | 注册/登录/令牌管理 | 邮箱+密码注册（内部白名单）、登录、JWT 无状态认证、刷新令牌、登出、重置密码 | 平台入口，无它不可用 |
-| P0-A2 | RBAC 双角色与权限校验 | 预置普通用户/管理员；后端中间件 + 前端路由守卫双重校验 | 双端边界安全基线，管理接口必须受控 |
-| P0-A3 | 数据权限隔离 | 用户仅能访问本人会话/消息/追溯日志；管理员只读审计全量 | 用户隔离/会话隔离数据层落地 |
-| P0-A4 | 管理员账号初始化 | 首启种子脚本，由技术部线下创建/指派 | 【确认】管理员线下创建的落地 |
+| raw_data | ads_cbg_rt_fcst_retail_stat.csv | 品类 × SKU × 渠道 × 月份；period_id、category_name、product_mode_code、channel_name_l3、retail_qty、retail_amt | 历史销量、销售额和历史均价 |
+| master_data | tof_fcst_product_info.csv | 品类 × SKU × 渠道；product_series、product_status 等 | 系列、在售状态、生命周期和预测特征 |
+| price_data | tof_fcst_product_plan_price.csv | 品类 × SKU × 月份 × 版本；min_price_n…n6、daily_price_n…n6；当前没有渠道键 | 未来计划价和价格展开 |
+| dsi_data | dwd_cbg_sl_tb_fcst_dsi_price_detail.csv | 模型所需的原始粒度 | 预测模型输入；当前不直接进入 SKU 月度 What-if 关联 |
+| rebate_data | dwd_cbg_sl_tb_fcst_channel_rebate_detail.csv | 品类/渠道/产线等粒度，无稳定 SKU 月度键 | 预测模型输入；不直接计算 SKU 毛利 |
+| cost_data | data/reference/cost_data.xlsx | 品类 × SKU；品类、型号、成本价；当前无月份和渠道 | 毛利、What-if 和策略优化 |
+| price_elasticity | data/reference/price_elasticity.xlsx | 品类 × 系列 × SKU；价格弹性系数、弹性分类；当前无月份和渠道 | What-if 和策略优化 |
 
-**P0-B 用户端（业务部门）**
+工作台数据集列表还包含输出数据集 fcst_detail。归因结果使用独立的语义表和 /api/attribution 查询，不把归因结果误计入七张输入基座表。
 
-| 编号 | 功能 | 目标 | 分级理由 |
+### 3.4 预测与归因输出缓存
+
+| 输出 | 上游事实 | PG 落点 | 查询粒度 |
 |---|---|---|---|
-| P0-B1 | 对话工作台 | ChatGPT 风格：会话列表 + 消息流；markdown/代码块/表格/图表渲染；发送/停止 | 平台主界面，核心入口 |
-| P0-B2 | 会话管理 | 新建/列表/重命名/删除/恢复历史、**置顶**（hover 菜单操作，【变更 v0.10】）；**会话间上下文完全隔离、互不串扰** | 会话隔离前端载体 |
-| P0-B3 | 流式展示 | 用户消息、Agent 中间过程、工具调用状态、最终回复实时渲染 | Agent 执行耗时，无即时反馈不可用 |
-| P0-B4 | 全链路追溯面板 | 单会话执行轨迹：消息→工具名→入参→结果→最终回复，失败原因可见 | 「全过程可追溯」核心差异化能力，对标 deepseek-harness |
-| P0-B5 | 销售数据查询 | 自然语言 → 结构化查询（销售数据 API），结果表格渲染 | 首期业务场景 1 |
-| P0-B6 | 销售预测与可视化 | 对话触发预测工具，结果图表可视化 | 首期业务场景 2 |
-| **P0-B7** | **停止生成** | 用户在流式执行中停止生成，Agent 收到中断信号，终止当前循环，已完成工具结果落库、未完成不被写入 | 流式体验必需；直接支撑对话交互闭环（P0-B3） |
-| **P0-B8** | **个人设置-基础信息** | 头像菜单 → 基础设置页：昵称修改、密码修改（走 `PATCH /auth/password`）、**邮箱只读展示不提供修改入口**（【确认】） | 账号自助维护闭环；模型设置（BYOK）为 P1 预留见 P1-10（【变更 v0.10】） |
+| 预测明细 | fcst_forecast_result | relay 到 fcst_detail | 版本 × 品类 × SKU × 渠道 × 月份 × horizon |
+| 归因因子 | fcst_attribution | relay 到 attribution_analysis_rows | 预测基础粒度 × 因子 |
 
-**P0-C Agent 执行引擎与工具**
+预测查询至少需要版本、预测月份、品类、渠道、SKU、final_value、预测价/计划价和状态。归因查询至少需要版本、horizon、SKU、预测值、滞后销量、因子层级、因子名、影响量、类型汇总和贡献比例。
 
-| 编号 | 功能 | 目标 | 分级理由 |
-|---|---|---|---|
-| P0-C1 | Agent 执行循环 | LLM 规划→工具调用→结果回灌→错误重试/降级→最终回复；支持中断 | 【确认】参考 Claude Code 执行循环，Agent 平台标配 |
-| P0-C2 | 工具调用协议 | 工具统一 schema（名称/描述/入参/出参）、参数校验、结构化结果、错误语义 | 多工具统一接入前提 |
-| P0-C3 | 工具注册与场景编排 | 工具中心（注册/启停/校验）；「场景 = 模型配置 + 工具集 + 系统提示词」可组合 | 高扩展性核心，自定义预测模型按此规范接入 |
-| P0-C4 | 沙箱执行环境 | 容器化执行工具代码 + 内网白名单出网 + 资源/超时限制 | 【确认】沙箱隔离，外部不可控代码安全边界 |
-| P0-C5 | 全链路追溯日志 | 事件链式记录 Agent 每一步，可完整还原一次执行 | 「不可追溯则不做」硬性要求 |
-| P0-C6 | SSE 事件通道 | SSE 事件：agent_process / tool_call / tool_result / tool_error / content_delta / done / error | 流式展示服务端基础 |
+归因字段口径：
 
-**P0-D 管理员端（最小可用管理台，【假设 H4】）**
+- shap_value 是单个因子对预测销量的影响量，单位为台；
+- type_impact 是同一 SKU/月/因子类型的影响量合计；
+- contribution_pct 是影响量绝对值占比；
+- value_T 和 value_T_1 是解释影响的当期值和基准值，不是影响量；
+- 标准化输出应使用 impact_qty，并由 factor_layer + factor_name 生成稳定 factor_id；
+- 当前没有完整的 delta_price，因此不能声称已经支持完整的价格归因。
 
-| 编号 | 功能 | 目标 | 分级理由 |
-|---|---|---|---|
-| P0-D1 | 用户管理 | 列表/搜索/创建/禁用/启用/重置密码/分配角色 | 账号运营必需 |
-| P0-D2 | 工具/数据源管理 | 注册/启停/参数配置/连通性测试 | 工具化能力运营必需 |
-| P0-D3 | LLM 模型配置 | 多供应商/端点/Key/模型管理、默认模型、健康检查 | 多供应商抽象层（【确认】）运营落地 |
-| P0-D4 | 会话与日志审计 | 全量会话/消息/工具调用/追溯日志只读检索；**审计行为自身留痕** | 管理员职责，权限越大留痕越重 |
-| P0-D5 | 系统参数 | 会话保留天数、并发上限、默认模型等 | 运维可控性 |
+### 3.5 计算口径
 
-**P0-E 平台基础设施**
+~~~text
+历史均价 = sum(retail_amt) / sum(retail_qty)       （有效销量大于 0）
+预测销售额 = forecast_qty × forecast_price
+模拟销售额 = sim_qty × sim_price
+毛利 = (price - cost_price) × qty
+~~~
 
-| 编号 | 功能 | 目标 | 分级理由 |
-|---|---|---|---|
-| P0-E1 | docker-compose 一键部署 | 应用 + 数据库 + 沙箱运行时编排；PostgreSQL 初始化与依赖顺序；健康检查 | 交付与验收前提 |
-| P0-E2 | 审计与异常框架 | 登录/越权访问/敏感操作审计；统一错误码与异常日志 | 「越权即拒绝并写入审计」要求落地 |
+毛利、毛利率和库存指标必须同时返回覆盖率或状态：
 
-### 3.2 P1 增强功能
+- price_coverage：有价格的数量覆盖；
+- cost_coverage：有成本的数量覆盖；
+- gross_coverage：价格和成本同时存在的数量覆盖；
+- price_status、cost_status、gross_profit_status：完整、部分或缺失；
+- 缺少未来库存和 COGS 时，inventory_turnover_days 必须为 null，并标记不可用原因，不能使用占位文本作为真实指标。
 
-| 编号 | 功能 | 目标 | 分级理由 |
-|---|---|---|---|
-| P1-1 | GitHub OAuth 企业登录 | 免密单点登录 | 账号体系 P0 已闭环，OAuth 安全回调需专项配置，增强项 |
-| P1-2 | 自定义角色与权限点管理 | 角色分级、自定义角色组合 | RBAC 骨架已预留，界面化配置一次性投入大 |
-| P1-3 | 文档型 RAG 知识库 | 非结构化文档问答 | 跨入结构化数据域外，需向量库与文档管线，成本高 |
-| P1-4 | 多模型切换与路由 | 场景/用户级模型选择、故障切换 | LLM 抽象层 P0 已就位，产品化路由管理次期做 |
-| P1-5 | SQL 直连数据源 | 支持 SQL/数据库查询工具 | 直连库涉及账号/脱敏/审计治理，安全评审成本高 |
-| P1-6 | 管理台数据看板 | 用量/Token/工具调用统计图表 | 运营优化，非闭环必需（与 H4 一致） |
-| P1-7 | 操作审计导出 | 审计日志 CSV/JSON 导出 | 合规增强 |
-| P1-8 | 会话导出与只读分享 | 结果协作沉淀 | 非核心，协作增强 |
-| P1-9 | 长任务异步队列 | 大批量预测批处理 + 进度推送 | 首期并发 ≤30 会话，队列机暂不需要，扩量再上 |
-| P1-10 | 用户级模型配置（BYOK） | 普通用户配置个人模型（供应商/类型/ID/URL/APIKey），会话优先用用户自己的模型，未配置则用平台默认；数据模型预留 `user_llm_config` 表（【预留】，见 11.2） | LLM 抽象层 P0 已就位；用户级配置涉及 Key 保管与降级策略（H10），次期做；双端边界影响：用户端 LLM 配置能力由 ❌ 变 P1 提供（【变更 v0.10】） |
+### 3.6 未来价格解析规则
 
-### 3.3 P2 远期功能
+未来价格必须按以下优先级解析，并在明细中保留来源：
 
-| 编号 | 功能 | 目标 | 分级理由 |
-|---|---|---|---|
-| P2-1 | 多模型负载均衡与故障切换深化 | 规模化模型调度 | 依赖 P1-4 后运营数据支撑 |
-| P2-2 | 部门/团队级数据权限 | 数据源级权限细分 | 需组织架构模型支撑，首期无诉求 |
-| P2-3 | 会话智能摘要与自动归档 | 长会话治理 | 需评估既有数据与体验 |
-| P2-4 | 沙箱强隔离升级（gVisor/Kata） | 纵深安全 | 当前威胁模型下 Docker 限制已够，成本高 |
-| P2-5 | 内部工具/提示词市场 | 跨团队复用 | 需工具生态成熟后才有价值 |
-| P2-6 | 开放 API 与外部系统集成 | 平台能力外溢 | 需网关/限流设计，后置 |
-| P2-7 | 限流与 QPS 精细化治理 | 高并发加固 | 内部私有化场景暂不触发 |
+1. 同版本、同 SKU、同月份、同渠道的 forecast_price 或 plan_price；
+2. 展开后的同版本 SKU/月 price_data 计划价；
+3. 无渠道计划价，标记 channel_fallback；
+4. 历史最后有效渠道价；
+5. 历史最后有效 SKU 价；
+6. 无法匹配时返回 null。
 
-### 3.4 禁止展开条目
+每条结果必须带 price_source、price_base_month、price_status 和 coverage。当前实现存在“先使用历史最后有效价，再尝试预测价/计划价”的风险，发布前必须修正，防止历史兜底覆盖未来计划价。
 
-公网计费、多租户、开放注册市场、公网直接暴露、普通用户自助注册为管理员。以上在 P0 均不设计、不展开，仅在 P1/P2 清单中列名。
+### 3.7 价格弹性导入责任
+
+目标责任边界如下：
+
+~~~text
+模型服务读取并校验 price_elasticity.xlsx
+    → 标准化、版本化、原子替换 PG price_elasticity
+    → backend 只从 PG 读取弹性
+    → backend 将弹性参数放入 simulate/optimize 请求
+    → What-if 服务执行计算
+~~~
+
+运行时不允许 backend 重新读取 Excel，也不允许模型在缺字段时临时回退到 Excel。当前实现仍是模型参考 API 读取文件、backend 拉取并写 PG 的迁移形态，需在发布前收敛到上述责任边界。
 
 ---
 
-## 4. 总体架构与技术选型
+## 4. 功能范围和优先级
 
-### 4.1 顶层架构图
+### 4.1 P0 发布范围
 
-```
-┌───────────────────────── 浏览器 ─────────────────────────┐
-│        用户端 (Vue3 SPA)          管理员端 (Vue3 SPA)      │
-│  对话工作台·会话管理·追溯面板   用户/工具/LLM管理·日志审计   │
-└────────────────────────────┬──────────────────────────────┘
-                   HTTPS / JWT（同一入口按角色分流）
-┌────────────────────────────▼──────────────────────────────┐
-│                      FastAPI 应用层                        │
-│  ┌─────────────── 认证/权限(RBAC) ──────────────┐          │
-│  │ Auth│RBAC│会话模块│追溯模块│管理端模块│SSE│   │          │
-│  └───────────────┬──────┬──────┬──────┬──────┘            │
-└───────────────────┼──────┼──────┼──────┼──────────────────┘
-                    ▼      ▼      ▼      ▼
-        ┌─────────┐ ┌──────────┐ ┌──────────┐ ┌──────────┐
-        │Postgres │ │Agent执行 │ │沙箱管理器│ │ LLM 抽象 │
-        │JSONB/CTE│ │引擎·编排 │ │容器运行池│ │ OpenAPI │
-        └─────────┘ └────┬─────┘ └────┬─────┘ └────┬─────┘
-                         └──────┬─────┴───────┐    │
-                                ▼             ▼    ▼
-                        内网业务服务：销售数据API / 模型服务
-```
+| 编号 | 功能 | 当前状态 | 发布要求 |
+|---|---|---|---|
+| P0-01 | 认证、JWT、刷新、登出、密码和昵称 | 已实现 | access/refresh 轮换、内部邮箱白名单、密码策略和脱敏必须可用 |
+| P0-02 | 普通用户/管理员 RBAC | 已实现 | 路由权限、资源 owner 校验和 admin 前缀保护同时生效 |
+| P0-03 | 七表数据同步和工作台浏览 | 迁移中 | 取消行数截断，PG 快照完整且可分页遍历 |
+| P0-04 | 预测运行、任务查询、模型健康 | 已实现 | wait=true 完成 relay 并验证行数；失败不得返回假成功 |
+| P0-05 | 预测结果展示 | 已实现 | 读取 fcst_detail，支持版本、月份、SKU、渠道筛选 |
+| P0-06 | 归因列表、详情、趋势和 waterfall | 已实现 | 缺失值使用 null；明确当前不支持完整价格归因 |
+| P0-07 | What-if baseline、策略、模拟和优化 | 已实现/迁移中 | 读取 PG baseline，价格来源和覆盖状态透明，任务结果可追踪 |
+| P0-08 | Chat façade、SSE、结构化结果 | 已实现 | 与工作台同源，支持 history/forecast/attribution/simulation/optimization |
+| P0-09 | 原生追溯、会话流和 Markdown 导出 | 已实现 | 事件可还原工具调用、结果、错误、停止和完成状态 |
+| P0-10 | 管理员治理和运维健康 | 已实现/部分占位 | 管理操作留痕；审计导出明确标记为未实现 |
 
-### 4.2 模块划分（高内聚 · 低耦合 · 依赖单向）
+### 4.2 P1 计划
 
-```
-api/           HTTP 层：路由、鉴权、入参校验、SSE 出口        依赖：无
-auth/          JWT 签发/校验、Register/Login、密码hash       依赖：无
-rbac/          权限点定义、角色绑定、鉴权依赖库               依赖：auth
-chat/          会话/消息 CRUD、上下文组装、发送编排            依赖：rbac, agent
-agent_engine/  执行循环、状态机、中断、重试/降级              依赖：tools, sandbox, datasource, tracing
-tools/         注册中心、schema校验、启停、场景编排            依赖：rbac
-sandbox/       容器生命周期、出网白名单、资源/超时限制         依赖：config
-datasource/    结构化数据源类型化封装、Token 保管             依赖：config
-tracing/       事件链追加、审计事件、还原查询                  依赖：chat, agent_engine
-sse/           连接管理、事件发布/订阅                       依赖：无（被调）
-models/        SQLAlchemy ORM 与迁移                       依赖：无
-config/        pydantic-settings 环境配置                   依赖：无
-background/    长任务队列预留位（本期空实现）                 依赖：无
-```
+- 归因价格变化字段 delta_price 和稳定的价格影响拆解；
+- 成本、弹性增加有效期和渠道口径；
+- 未来库存、COGS、库存周转和库存约束优化；
+- What-if 场景、策略、baseline 版本和结果持久化到 PG；
+- 工作台除 fcst_detail 外的通用图表查询；
+- 真正生效的分页游标和后台筛选；
+- 审计文件导出；
+- 完整的参考数据版本管理、导入报告和回滚；
+- 面向更多业务品类和更多模型 provider 的场景化编排。
 
-依赖方向：`api → (auth → rbac) → chat → agent_engine → tools → sandbox/datasource`，单向无环；`tracing` 被 agent_engine 与 chat 依赖；`sse` 仅被 api 调用。
+### 4.3 明确不在本期展开
 
-**为什么这样切**：功能只向内依赖、不向外暴露概念；后续接入新工具/新数据源仅扩展 `tools`/`datasource`，不动其他模块，符合高扩展目标（【确认】）。
+任何需求如果会引入公网开放、跨租户数据、任意 SQL、文档 RAG、连续定价求解或未验证的因果结论，应单独立项，不得在 P0 需求中隐式扩张。
 
-### 4.3 技术栈与选型推荐
+---
 
-| 域 | 选型 | 推荐理由 / 取舍 |
+## 5. 用户端功能需求
+
+### 5.1 工作台数据浏览
+
+工作台必须提供数据集目录、数据集说明、筛选器、分页表格和必要的结果图表。
+
+当前数据集目录：
+
+| key | 展示名称 | 分组 | 当前支持的主要筛选 |
+|---|---|---|---|
+| raw_data | 零售统计 | input | category、channel、sku、period |
+| master_data | 产品主数据 | input | category、sku、version、status |
+| price_data | 计划价格 | input | category、sku、version、period |
+| rebate_data | 渠道返利 | input | category、channel、product_line |
+| dsi_data | DSI 价格 | input | category、channel、sku、period |
+| cost_data | 商品成本 | input | category、sku |
+| price_elasticity | 价格弹性表 | whatif | category、series、sku |
+| fcst_detail | 预测明细 | output | category、channel、sku、period、series、version、status |
+
+功能要求：
+
+1. 先调用数据集目录，再按数据集加载 filter options；
+2. 表格查询使用 page/page_size，默认 50，最大 200；
+3. 返回固定优先列和当前 payload 中出现的字段；
+4. 空值保持空值，不能用 0 代替；
+5. charts 当前只对 fcst_detail 提供月份、预测数量和销售额序列；其他数据集暂返回明确的业务错误；
+6. “全量查看”表示可以通过分页遍历完整快照，不要求单次响应返回全部行；
+7. 筛选字段必须与数据集粒度一致，不能把没有渠道键的计划价、成本或弹性伪装成渠道事实。
+
+对应 API：
+
+- GET /api/workbench/datasets
+- GET /api/workbench/filter-options/{dataset}
+- GET /api/workbench/tables/{dataset}
+- GET /api/workbench/charts/{dataset}
+- GET /api/workbench/knowledge/strategy
+- POST /api/workbench/upload/cost_data
+
+成本上传只接受 CSV/XLSX，经模型参考接口校验后同步 PG；模型已接受但 PG 同步失败时必须返回失败状态，不能显示为同步成功。
+
+### 5.2 预测
+
+预测运行参数：
+
+| 参数 | 要求 |
+|---|---|
+| category | 必填、非空 |
+| forecast_month | 可选，传给模型 |
+| wait | 默认 true |
+| channel、sku | 可选过滤 |
+| start、end | 可选模型范围 |
+| horizon | API 默认 7，范围 1 至 7 |
+| intent | 可选业务意图 |
+
+行为要求：
+
+- 模型未启用或上游失败时返回 502 业务错误；
+- wait=true：等待模型完成，relay 预测、归因和历史行，再返回版本、任务、relay 计数和 fcst_detail 表格；
+- relay 行数不足或版本不一致时，整个运行判定失败；
+- wait=false：只返回任务信息，调用方通过任务接口和工作台查询后续状态，不得假定结果表已经有数据；
+- 同一业务版本的预测和归因必须可通过 system_forecast_number 关联；
+- 离线 XLSX 只允许读取 output 目录内的安全文件名，禁止路径穿越。
+
+对应 API：
+
+- POST /api/forecast/runs
+- GET /api/forecast/tasks/{task_id}
+- GET /api/forecast/model/health
+- POST /api/forecast/extract
+
+### 5.3 归因
+
+归因页按品类、版本、SKU 和可选渠道/月份展示：
+
+- 预测值 y_pred 与滞后销量 qty_lag1；
+- 因子详情、因子类型汇总和 waterfall；
+- 历史/预测趋势，缺失月份使用 null；
+- 因子名称、层级和影响量；
+- 当前数据是否包含价格影响，不能用其他因子代替。
+
+对应 API：
+
+- GET /api/attribution/options
+- GET /api/attribution/skus
+- GET /api/attribution/detail
+- GET /api/attribution/trend
+
+detail 没有匹配数据时可以返回 HTTP 200，但必须返回 ok=false 和可理解的错误信息；前端不得把它当作零影响。
+
+### 5.4 What-if 模拟和策略优化
+
+#### Baseline
+
+GET /api/whatif/baseline 必须以 PG 中选定版本的预测销量为 baseline，保留 SKU、渠道、月份和 horizon 明细。响应至少包含：
+
+- baseline 数量、金额和月份序列；
+- 价格、成本、毛利覆盖率；
+- 每条明细的价格来源、基准月份和匹配状态；
+- 弹性命中情况；
+- 缺库存数据时的不可用状态。
+
+当前接口参数为 category、version 必填，period 可选，limit 默认 200 且最大 200。产品要支持完整分析时，应补充可遍历的分页或场景快照，而不是让用户误以为 200 行就是全量。
+
+#### Simulate
+
+用户先从 GET /api/whatif/strategies 选择有效策略，再提交：
+
+- rows：至少一条 baseline 行；
+- strategy_id：必填；
+- param：策略参数；
+- traffic_tier：可选流量层级。
+
+接口当前返回 task_id 和 status，用户通过任务接口读取结果。策略应用于 baseline 的月份/渠道明细后，结果应包含 sim_qty、sim_price、sim_amount、毛利、价格来源和 coverage。
+
+#### Optimize
+
+用户提交：
+
+- rows：至少一条 baseline 行；
+- target_qty：必填；
+- target_revenue：可选且不得小于 0；
+- param、traffic_tier：可选。
+
+优化是有限策略目录上的离散搜索，不是连续价格优化。结果必须展示推荐策略、目标值、baseline 对比、销量/销售额/毛利变化和假设。
+
+对应 API：
+
+- GET /api/whatif/strategies
+- GET /api/whatif/baseline
+- POST /api/whatif/simulate
+- POST /api/whatif/optimize
+- GET /api/whatif/tasks/{task_id}
+
+What-if 上游异常返回 HTTP 502。由于 What-if 代理接口当前返回裸 JSON，前端必须同时处理统一错误壳和上游裸 detail。
+
+### 5.5 Chat 工作台
+
+工作台使用 /api façade，原生追溯使用 /api/v1/chat，两套协议不能混用。
+
+Chat 请求字段：
+
+| 字段 | 说明 |
+|---|---|
+| message | 1 至 65536 个字符，去空白后不能为空 |
+| session_id | 可选，省略时创建会话 |
+| params | 预留参数；当前 bridge 不读取，不能当作已生效的业务筛选 |
+| oa | 传给 Agent 上游的 OA 标识 |
+| access_token | 传给 Agent 上游的 token，不是本地 JWT |
+
+成功 envelope 的 response_type 当前包括：
+
+- history：历史事实、指标、序列和表格；
+- forecast：预测版本、预测点、月度汇总和任务信息；
+- attribution：预测值、因子、waterfall 和趋势；
+- simulation：策略模拟结果；
+- optimization：策略推荐和目标对比；
+- report：综合文本或分析报告。
+
+结构化结果必须提供稳定的 table、chart 或领域字段，不能只把 JSON 拼到 markdown 中。Chat 使用和页面相同的 PG 查询及上游服务，不得另造一份销售数据。
+
+### 5.6 会话、停止和追溯
+
+会话功能：
+
+- 新建、列表、详情、重命名、删除；
+- 置顶和取消置顶；
+- 消息列表和消息发送；
+- 同一会话运行中拒绝第二个并发流程；
+- Idempotency-Key 防止重复提交；
+- 用户停止运行后，已完成工具结果保留，未完成结果不能伪装为成功。
+
+追溯面板至少显示：
+
+~~~text
+用户消息
+  → Agent 规划/状态
+  → tool_call：工具名、入参、计划序号
+  → tool_result：结构化摘要、耗时、状态
+  → tool_error：错误码、重试次数、错误信息
+  → done：最终文本、状态和可选 token usage
+~~~
+
+用户可以获取单条消息 trace 或下载 Markdown；管理员可以按 trace、工具、错误码和用户查询并实时查看会话。
+
+### 5.7 账户和个人设置
+
+- 邮箱+密码注册只接受白名单后缀；
+- 登录返回 access token、refresh token、过期时间和用户信息；
+- access token 默认 15 分钟，refresh token 默认 7 天并轮换；
+- 邮箱只读，不提供修改入口；
+- 用户可以修改昵称和密码；
+- 密码至少 10 位，满足大小写字母和数字策略；
+- 登录、刷新、注销、权限拒绝和管理员修改密码应有必要审计，绝不记录密码、JWT 或 API key。
+
+---
+
+## 6. Agent 执行与工具编排
+
+### 6.1 执行循环
+
+~~~text
+接收消息
+    → 校验会话 owner、幂等键和并发状态
+    → Agent 判断意图和缺失参数
+    → 调用内部工具或受控 sandbox 工具
+    → 校验工具结果并写 trace event
+    → 结果回灌或重试/降级
+    → 结果投影为 envelope
+    → 持久化 assistant 消息和完成事件
+    → 通过 JSON 或 SSE 返回
+~~~
+
+Agent 不应直接访问未经授权的数据库表或文件；工具通过服务层读取 PG 或调用受控上游。工具失败应返回结构化错误或 need_input，不要让模型猜测缺失的品类、版本、SKU 或策略。
+
+### 6.2 当前内部工具
+
+当前默认场景可调用 8 个 internal 工具：
+
+| 工具 | 用途 | 关键输入 | 主要输出 |
+|---|---|---|---|
+| get_history | 查询历史/实际销量 | category，sku/channel/start/end 可选 | history envelope、指标、序列、行和 Top SKU |
+| submit_forecast | 发起预测 | category；forecast_month/horizon 可选 | forecast envelope、version、task、relay |
+| get_task_status | 查询模型或 What-if 任务 | task_id | 状态、进度、结果或错误 |
+| get_forecast_result | 读取已完成预测 | system_forecast_number、horizon | 预测点、月度汇总和 Top SKU |
+| get_attribution | 查询 SKU 归因 | version、category、sku、period 可选 | attribution envelope、waterfall、因子和趋势 |
+| get_whatif_strategies | 读取策略目录 | status 可选 | 有效策略、参数类型和默认参数 |
+| simulate | 执行规则式模拟 | version、category、策略和筛选条件 | simulation envelope、baseline 和任务结果 |
+| optimize | 选择有限策略 | version、category、目标和策略参数 | optimization envelope、目标差距和假设 |
+
+工具语义约束：
+
+- get_history 只能回答历史事实，不用预测值冒充实际销量；
+- 预测结果必须带版本和来源工具；
+- 归因不把 shap_value 等同于因果效应；
+- simulate/optimize 必须使用同一版本 baseline；
+- 工具结果中的价格必须保留来源和状态；
+- 缺参数时返回 need_input、missing 和候选项；
+- 结果投影不得丢失 source_tool、version、category、SKU、period 和任务标识。
+
+### 6.3 工具注册和 sandbox
+
+管理员工具接口支持 internal 和 sandbox 两类执行方式：
+
+- internal 工具在后端进程内执行；当前 8 个默认业务工具均属于此类；
+- sandbox 工具进入受控 daemon，使用固定镜像、handler、超时、资源和内网出网白名单；
+- 工具 input schema 必须是封闭 JSON Schema，禁止未声明字段；
+- 数据源凭据通过受控引用注入，不能出现在 tool result、SSE 或审计详情；
+- 当前平台默认并发上限 3、超时默认 30 秒，实际值可由管理员系统参数调整。
+
+---
+
+## 7. HTTP API 产品契约
+
+### 7.1 路由分层
+
+| 领域 | 路径 | 主要权限 | 响应特点 |
+|---|---|---|---|
+| 认证 | /api/v1/auth/* | 登录相关例外，其余需登录 | JSON 使用 {code,message,data} |
+| OA 登录 | /api/auth/login | 无本地 JWT | 裸 JSON，包含 OA 上游 token |
+| 原生会话/消息 | /api/v1/chat/* | chat:read/send/stop/delete、trace:read | JSON 统一壳；SSE 和 Markdown 导出除外 |
+| 工作台 Chat façade | /api/sessions、/api/chat* | chat:read/send/delete | 裸 JSON；/api/chat/stream 使用 façade SSE |
+| 工作台数据 | /api/workbench/* | chat:read；上传需要 chat:send | 裸 JSON |
+| 预测 | /api/forecast/* | chat:read/send | 裸 JSON；上游错误为统一 502 业务错误 |
+| 归因 | /api/attribution/* | chat:read | 裸 JSON |
+| What-if | /api/whatif/* | chat:read/send | 裸 JSON；上游错误为 HTTP 502 detail |
+| 管理 | /api/v1/admin/* | 管理员 + 具体 admin 权限 | JSON 使用统一壳 |
+| 运维 | /healthz、/readyz、/api/health/agent | 无需鉴权 | 裸 JSON |
+
+当前完整字段以 docs/api-contract.md 和 OpenAPI 为准；本节只定义产品分层和必须保持的语义。
+
+当前关键操作清单：
+
+- 认证：/api/v1/auth/register、login、me、refresh、logout、password、me；OA 登录为 /api/auth/login；
+- 原生会话：/api/v1/chat/conversations 及其 messages、stream、trace 和 trace/export；
+- 工作台 façade：/api/sessions、/api/chat、/api/chat/stream、/api/products、/api/agent/probe/template、/api/agent/probe；
+- 管理：/api/v1/admin/datasources、tools、scenarios、llm、sessions、messages、traces、audits、users、config；
+- 健康：/healthz、/readyz、/api/health/agent。
+
+### 7.2 通用请求头和错误
+
+| Header | 用途 |
+|---|---|
+| Authorization: Bearer access_token | 受保护接口 |
+| X-Request-Id | 可选请求关联 ID；服务端未提供时生成并回写 |
+| Idempotency-Key | 原生/ façade 消息发送幂等 |
+| X-Refresh-Token | /api/v1/auth/logout 注销 refresh token |
+
+统一错误码：
+
+| code | HTTP | 语义 |
+|---|---:|---|
+| 400_VALIDATION | 400 | 业务参数或规则错误 |
+| 401_UNAUTHORIZED | 401 | 未登录、token 无效或凭据错误 |
+| 403_FORBIDDEN | 403 | 权限不足，并写权限拒绝审计 |
+| 404_NOT_FOUND | 404 | 资源不存在或 owner 不匹配 |
+| 409_CONFLICT | 409 | 并发流程、重复资源或状态冲突 |
+| 500_INTERNAL | 500 | 未处理后端错误 |
+| 502_UPSTREAM | 502 | 模型、参考服务或同步服务不可用 |
+| 429_RATE_LIMIT | 429 | 预留的限流/登录锁定语义 |
+| 501_NOT_IMPLEMENTED | 200 | 当前仅用于审计导出占位响应 |
+
+FastAPI/Pydantic 结构校验仍可能返回原生 422。所有时间使用 ISO 8601 字符串或 null，字段保持 snake_case。
+
+### 7.3 SSE
+
+原生消息级流：
+
+GET /api/v1/chat/conversations/{cid}/messages/{mid}/stream
+
+可能事件：
+
+| event | 内容 |
+|---|---|
+| message.delta | 文本增量 |
+| agent.process / agent.status | 规划和执行状态 |
+| tool.call | 工具名、入参、计划序号、request_id |
+| tool.result | 工具名、结果摘要、耗时和状态 |
+| tool.error | 工具名、错误码、消息、重试次数 |
+| done | 消息 ID、最终文本、完成状态和可选 usage |
+| error | 统一错误码和消息 |
+| follow_up.suggestions | 后续建议 |
+
+工作台 façade 流：
+
+POST /api/chat/stream
+
+只使用以下四类帧：
+
+| event | 内容 |
+|---|---|
+| delta | {text} |
+| status | 当前阶段、文本和步骤 |
+| result | 与 /api/chat 相同的最终 envelope，并附 steps |
+| done | {ok}，只表示流结束 |
+
+会话级流会先回放最近事件，再发送 session.meta，随后推送实时 session.pack。管理员会话流只读且建立连接即写 audit.view。
+
+### 7.4 API 实现边界
+
+当前接口可联调，但下列参数或能力仍不能作为已完成能力使用：
+
+- 原生会话/消息的 cursor 当前未真正分页；
+- /api/sessions 固定最多返回 100 条；
+- 部分 admin 查询参数尚未生效；
+- /api/chat 的 params 当前未被 bridge 读取；
+- /api/agent/probe 只返回本地配置状态，不真正转发探测请求；
+- wait=false 预测返回时，工作台 table 可能为空；
+- /api/workbench/charts 当前仅支持 fcst_detail；
+- /api/v1/admin/audits/export 只是 P1 占位，不生成文件；
+- What-if baseline 的库存周转字段当前始终不可用；
+- 数据源 PATCH 对 credential 和 whitelist 的落库行为尚未完整；
+- What-if 上游错误体与其他领域的统一错误壳不一致。
+
+这些限制必须在前端提示、联调文档和发布验收中显式处理。
+
+---
+
+## 8. 权限、安全与审计
+
+### 8.1 权限矩阵
+
+| 权限点 | 普通用户 | 管理员 | 典型接口 |
+|---|---:|---:|---|
+| chat:read | ✓ | ✓ | 会话读取、工作台、预测任务、归因、What-if 读取 |
+| chat:send | ✓ | ✓ | 发送消息、预测运行、模拟/优化、成本上传 |
+| chat:stop | ✓ | ✓ | 停止消息 |
+| chat:delete | ✓ | ✓ | 删除自己的会话 |
+| trace:read | ✓ | ✓ | 自己消息追溯 |
+| adm:tool.manage | — | ✓ | 数据源、工具、场景 |
+| adm:llm.manage | — | ✓ | LLM provider |
+| audit:read | — | ✓ | 全量会话、trace、审计和管理员流 |
+| adm:user.manage | — | ✓ | 用户和密码 |
+| adm:config.manage | — | ✓ | 系统参数 |
+
+### 8.2 数据和资源隔离
+
+- 普通用户的会话、消息、trace 必须按 owner 查询；
+- owner 不匹配和资源不存在统一返回 404，不泄露资源存在性；
+- 管理员可以只读查看未删除的全量会话；
+- 按当前审计实现，管理员查看会话、消息、trace、审计列表和管理员会话流写 audit.view；
+- 软删除会话不应继续出现在普通列表，历史消息状态按实现转为 failed；
+- 同一会话不能并发运行多个活动流程。
+
+### 8.3 凭据和网络
+
+- API key、数据源 credential、JWT、OAuth token 和密码禁止写入日志、trace、SSE 或响应列表；
+- 管理列表只返回掩码，例如 ***；
+- sandbox 只能访问内网白名单和明确允许的目标；
+- OA 上游 token 只能在受信任流程中转发，不能展示；
+- forecast/extract 必须防止路径穿越，只能读取 output 目录；
+- 生产环境配置从环境变量或密钥系统注入，不提交 .env、凭据和数据 dump。
+
+---
+
+## 9. 技术架构和部署要求
+
+### 9.1 组件
+
+~~~text
+React/Vite 工作台
+    │ JSON / SSE
+FastAPI backend
+    ├─ auth / RBAC / admin / audit
+    ├─ chat native + chat façade
+    ├─ workbench / attribution / what-if API
+    ├─ forecast client + relay
+    └─ PG semantic query and result projection
+        │
+        ├─ PostgreSQL
+        ├─ icewash forecast / What-if service
+        ├─ Agent LLM gateway or OpenAI-compatible provider
+        └─ sandbox daemon
+~~~
+
+后端与模型/What-if 服务均通过受控 client 通信。前端不直接访问数据库、模型文件或内部服务。
+
+### 9.2 启动顺序
+
+1. PostgreSQL 可连接并完成 Alembic migration；
+2. 执行七张基座表和参考数据同步；
+3. 完成必要的字段、行数、版本和唯一键校验；
+4. 启动 FastAPI；
+5. 验证 /readyz、/healthz 和 /api/health/agent；
+6. 验证模型、Agent provider、What-if 服务和 sandbox daemon 的可用状态；
+7. 允许前端进入工作台。
+
+当正式同步开启且基座同步失败时，后端必须阻止继续使用陈旧缓存。同步过程应支持原子替换和可审计的版本信息。
+
+### 9.3 配置和健康检查
+
+必需配置包括：
+
+- PostgreSQL URL；
+- JWT secret；
+- backend 与 sandbox daemon 的内部 token；
+- 模型、What-if、Agent gateway 和 LLM provider 的地址及密钥；
+- 内网出网白名单；
+- 工作台同步开关、超时、并发和保留策略。
+
+健康检查：
+
+- /readyz：数据库可连接才返回 200，否则 503；
+- /healthz：聚合 DB、LLM 和 sandbox daemon，返回 ok 或 degraded；
+- /api/health/agent：返回 Agent/默认 provider 的可用投影，不暴露密钥；
+- /api/forecast/model/health：返回预测模型开关和上游健康状态。
+
+### 9.4 保留、备份和监控
+
+默认系统参数：
+
+| 参数 | 默认值 |
+|---|---:|
+| retention.conversation_days | 180 |
+| retention.audit_days | 365 |
+| auth.login_fail_limit | 5 |
+| sandbox.max_concurrent | 3 |
+| sandbox.timeout_s | 30 |
+| conversation.user_max_messages | 48 |
+
+预测版本、基座快照、relay 计数、What-if 任务和审计记录必须能关联。生产环境至少监控数据库连接、上游错误率、任务耗时、SSE 中断、同步行数差异和权限拒绝事件。
+
+---
+
+## 10. 发布验收
+
+### 10.1 数据事实验收
+
+- [ ] 七张基座表均可列出、筛选和分页浏览；
+- [ ] 源文件行数与 PG 导入行数有可审计的校验结果；
+- [ ] 移除 ROW_CAPS 后，分页可以遍历完整快照；
+- [ ] 工作台、模型输入和 What-if baseline 使用同一 PG 标准化数据；
+- [ ] 模型不再在业务运行时直接读取 CSV；
+- [ ] price_data 宽列已展开为按月份可匹配的长表；
+- [ ] 成本和弹性缺失不会被当作 0；
+- [ ] 每条未来价格都有 source、base month、status 和 coverage；
+- [ ] 预测和归因 relay 为完整版本替换，版本与行数一致。
+
+### 10.2 业务功能验收
+
+- [ ] 历史查询返回真实月份、销量、销售额和派生均价；
+- [ ] 预测运行成功后返回 version、task、relay 计数和 fcst_detail；
+- [ ] wait=false 的任务可通过任务接口和结果接口继续查询；
+- [ ] 归因列表、详情、趋势和 waterfall 可按版本/SKU 查询；
+- [ ] 缺失归因返回明确状态，不伪造零影响；
+- [ ] What-if baseline 能展示价格、成本、弹性和毛利 coverage；
+- [ ] simulate/optimize 使用选定版本的 baseline，不触发预测重算；
+- [ ] What-if 结果展示策略、目标差距、价格来源和假设；
+- [ ] Chat 的历史、预测、归因、模拟和优化结果与页面数据一致。
+
+### 10.3 交互和追溯验收
+
+- [ ] Chat 同步和 SSE 两种模式均能返回最终 envelope；
+- [ ] SSE 能显示 delta、状态、工具调用、工具结果、错误和完成事件；
+- [ ] 用户可以停止运行，已完成结果保留，未完成结果不落为成功；
+- [ ] Idempotency-Key 不会创建重复消息或重复任务；
+- [ ] trace 能还原消息、工具、参数、结果、错误、重试和完成状态；
+- [ ] trace Markdown 可以下载；
+- [ ] 会话之间上下文隔离，越权访问返回 404。
+
+### 10.4 安全和运维验收
+
+- [ ] 无 token、无权限和失效 token 的返回语义符合契约；
+- [ ] admin 接口拒绝普通用户，并写权限拒绝审计；
+- [ ] 管理员查看全量数据写 audit.view；
+- [ ] API key、credential、密码和 OAuth token 不出现在列表、日志和 trace；
+- [ ] /readyz、/healthz、Agent 和预测模型健康检查可用；
+- [ ] 数据库、模型、What-if 或 sandbox 不可用时有明确降级和错误；
+- [ ] 审计导出未完成时前端显示“未实现”，不能显示下载成功。
+
+---
+
+## 11. 发布门槛与已知差距
+
+| 差距 | 当前事实 | 发布动作 |
 |---|---|---|
-| 后端 | **FastAPI**（Python 3.11+） | 异步原生适合 SSE 与高并发 IO；Pydantic 天然校验工具 schema；生态成熟 |
-| 前端 | **Vue 3 + Vite + TypeScript** | 组合式 API + Vite 构建，契合流式/表格式双模式应用 |
-| UI 组件库 | **Element Plus** + **ECharts** | 管理端表格/表单密集场景主场；对话流式区自定义 markdown 渲染；ECharts 图表成熟稳定 |
-| 数据库 | **PostgreSQL 15+** | JSONB+GIN 承载工具入参/结果与事件链，递归 CTE 还原层级；pgvector 为 P1 RAG 预留免迁移通道 |
-| 沙箱 | **Docker 受限运行时**（只读 rootfs、非 root、资源/超时限制、iptables 出网白名单默认拒绝公网） | 内部威胁模型下够用；gVisor/Kata 升级列入 P2 |
-| 流式通道 | **SSE** | HTTP 天然兼容代理/自动重连；「停止」用独立 `POST /stop` 实现 |
-| 权限模型 | **RBAC 表驱动**（角色/权限点/角色-权限三表） | P0 与硬编码几乎同成本，天然支持 P1 自定义角色 |
-| 部署 | **Docker + docker-compose** | 单机一键；PostgreSQL 初始化 + 依赖顺序见第 13 章 |
-| 环境管理 | **uv + venv**，依赖锁定文件 `uv.lock` 纳入版本管理 | 可复现构建、团队一致 |
-
-**为什么不用刀 MySQL / Ant Design Vue / WebSocket / Casbin / Podman / K8s**：已在第 1 轮对比表给出理由（JSONB 与 CTE 缺失、管理后台能力与生态、单向推送无需双工、P0 成本与 P1 需求）、团队技能栈与规模错配，均不入选。
-
----
-
-## 5. 用户端 P0 详设
-
-### 5.1 功能模块
-
-**登录页（公共入口）**
-- 邮箱 + 密码登录；内部邮箱白名单注册。
-- 成功后：`/auth/me` 返回 roles 与权限点 → **按权限点渲染导航**：普通用户仅见对话，管理员额外见管理台入口。
-
-**会话列表**
-- 展示本人全部会话（分页），新建/重命名/删除/恢复历史。
-- **hover 编辑菜单（【变更 v0.10】）**：每项（conv-item）悬停时右侧出现 `...` 按钮 → 点击弹出菜单：重命名、删除、置顶/取消置顶；重命名/删除复用既有接口（`PATCH/DELETE /conversations/{id}`），置顶走 `PATCH /conversations/{id}/pin`。
-- **排序规则（【变更 v0.10】）**：置顶项排最前（按置顶时间倒序），未置顶项按更新时间倒序。
-- 会话隔离：`WHERE conversation_id = {id} AND owner_id = {me}` 硬条件。
-
-**对话工作台**
-- 消息流：用户/助手气泡、markdown、代码块、表格、图表。
-- 流式：用户消息实时显示，Agent 中间过程、工具调用状态实时渲染，最终回复逐字追加。
-- 失败：流式中断 → 前端提示 + SSE 自动重连；API 错误按错误码表处理。
-
-**追溯面板**（对话工作台内嵌抽屉）
-- 每轮回复对应该轮 `trace`：消息 → 工具名 → 入参 → 结果 → 模型最终回复。
-- 工具项展开/折叠；失败项红框「失败: 原因」「已重试 N 次 / 降级 X」。
-- 字段级还原：`trace_id → node → events` 完整链，见 10.2。
-
-**聊天输入与停止**
-- 输入框 + 发送；`POST /chat/conversations/{id}/messages` 触发会话流。
-- 「停止」调 `POST /chat/conversations/{id}/messages/{mid}/stop`，服务端 `cancel_event` 终止当前循环；单会话单字节级（同一时间一个会话只允许一个活动 flow，防止并发写同一上下文）。
-
-**失败处理**
-- 流断开：前端重连；LLM 超时/沙箱超时：agent_process 记录「超时 → 重试/降级」并继续。
-- **注册/登录错误提示（【变更 v0.10】，三层方案【确认】）**：
-  a. 前端注册/登录表单提交前前置校验（邮箱格式、白名单后缀、密码强度规则提示），提交前拦截大部分错误；
-  b. 后端返回可读 message（如「邮箱后缀不在白名单内（允许：@corp.com）」「密码必须同时包含大小写字母与数字」），响应不裸堆技术异常堆栈，完整堆栈仅留后端日志；
-  c. 前端统一展示后端 message 而非仅错误码，错误码仅作技术标识。
-
-**头像菜单与个人设置（【变更 v0.10】）**
-- 入口：点击头像弹出菜单栏 →「基础设置」页（P0 头像菜单仅展示此入口，【假设 H9】）。
-- 基础设置：昵称可改（`PATCH /auth/me`）、密码可改（`PATCH /auth/password`，需校验原密码）、**邮箱只读展示、不提供修改入口**（【确认】）。
-- 「模型设置」页为 P1 预留（BYOK 用户级模型配置，见 3.2 P1-10）：本期仅列入口不实现，不展开 P1 设计。
-- 修改昵称/密码为敏感操作，写入审计（见 9.4）。
-
-### 5.2 接口清单
-
-| 方法 | 路径 | 说明 | 权限 |
-|---|---|---|---|
-| POST | `/auth/register` | 内部邮箱注册 | 未认证 |
-| POST | `/auth/login` | 登录，返回 access+refresh | 未认证 |
-| GET | `/auth/me` | 当前用户信息+权限点 | 已认证 |
-| POST | `/auth/refresh` | 刷新令牌 | — |
-| POST | `/auth/logout` | 注销+吊销 refresh | 已认证 |
-| PATCH | `/auth/password` | 修改密码（校验原密码，【变更 v0.10】） | 已认证 |
-| PATCH | `/auth/me` | 更新昵称（【变更 v0.10】） | 已认证 |
-| GET | `/conversations` | 我的会话列表（分页） | 本人 |
-| POST | `/conversations` | 新建会话 | 本人 |
-| GET | `/conversations/{id}` | 会话详情 | 本人 |
-| PATCH | `/conversations/{id}` | 重命名 | 本人 |
-| PATCH | `/conversations/{id}/pin` | 置顶/取消置顶（body `{pinned}`，【变更 v0.10】） | 本人 |
-| DELETE | `/conversations/{id}` | 删除（级联消息/工具/事件） | 本人 |
-| POST | `/conversations/{id}/messages` | 触发 SSESTREAM 会话 | 本人 |
-| POST | `/conversations/{id}/messages/{mid}/stop` | 停止当前生成 | 本人 |
-| GET | `/conversations/{id}/messages` | 历史消息分页 | 本人 |
-| GET | `/conversations/{id}/messages/{mid}/trace` | 追溯事件链 | 本人 |
-| GET | `/conversations/{id}/messages/{mid}/trace/export` | 可读文本导出 | 本人 |
-
-公共约定：响应统一 `{code, message, data}`；错误码表见 12.5；ID 全部 UUID；分页 cursor 制。
-
-### 5.3 主流程时序
-
-```
-前端           FastAPI            AgentEngine          沙箱           LLM
- │ POST messages │                    │                │               │
- │──────────────▶│ 鉴权+建message     │                │               │
- │               │─创建 trace─▶      │                │               │
- │ SSE open      │                   │ prompt 组装     │               │
- │◀ message.created─│                │  LLM 调用───────┴──────────────▶│
- │◀ tool.call / tool.result（含重试）│  ◀──执行──       │               │
- │◀ agent.process（阶段/重试/降级）  │  ◀──循环继续──   │               │
- │◀ done（最终回复已持久化）          │                                │
-```
-
-**为什么单会话单字节级**：隔离覆盖「同一会话并发写」与「同一用户跨会话隔离」两层；单会话强制串行避免上下文竞争。
+| PG 不是默认启动事实源 | workbench_sync_on_startup 默认关闭 | 纳入正式启动/部署流程，并在失败时阻止陈旧缓存 |
+| 导入仍可能截断 | seed_workbench 有 ROW_CAPS | 取消截断，增加源/目标行数校验 |
+| 模型仍有 CSV 读取路径 | dataloader.py 尚未完全 PG 化 | 统一 loader，模型从 PG 标准化数据读取 |
+| 弹性导入责任未收敛 | 当前由模型参考 API 读取文件、backend 拉取同步 | 改为模型侧导入 PG，运行时双方只读标准化数据 |
+| 未来价格优先级风险 | 当前历史有效价可能覆盖计划/预测价 | 按 3.6 的优先级实现并测试 |
+| 价格归因不完整 | 当前没有可靠 delta_price | P1 补齐前不得宣称完整价格归因 |
+| 库存指标不可用 | 没有未来库存和 COGS | 继续返回 null/status，不展示为实测值 |
+| What-if 结果主要在任务存储 | 场景、策略、baseline、结果尚未形成完整 PG 业务闭环 | P1 建立版本化场景结果表 |
+| 部分页/筛选参数只是兼容字段 | 原生 cursor、部分 admin filter 尚未生效 | 在前端禁用误导性控件或补齐后端实现 |
+| 图表范围有限 | charts 当前只支持 fcst_detail | 扩展前保持明确错误，不返回空图 |
+| 审计导出是占位 | /api/v1/admin/audits/export 返回 501 语义但 HTTP 200 | P1 实现文件导出或保持显式占位 |
+| Chat 探测不是实际探测 | /api/agent/probe 只报告本地配置 | 需要真实探测时单独实现安全的白名单探测 |
 
 ---
 
-## 6. 管理员端 P0 详设
+## 12. 风险与决策记录
 
-### 6.1 功能模块
+### 12.1 主要风险
 
-**用户管理**
-- 列表/搜索（邮箱、昵称、角色）/创建/禁用/启用/重置密码/分配角色。
-- 管理操作均写入 `audit_log`（操作者 + 时间 + 目标 + 摘要）。
-- **不能自禁用 / 不能移除最后一名管理员**（防锁死，编辑校验）。
-
-**工具 / 数据源管理**
-- 工具中心：注册、启停、schema 校验、参数配置、连通性测试。
-- 数据源：类型化配置（HTTP API / 内网服务 Token 等），Token 加密存储（后端密钥 + 安全存储）。
-- 启停即时生效（配置热更新，通过 `GET /config/effective` 支持运行时校验）。
-
-**LLM 配置管理**
-- 供应商 CRUD（OpenAI 协议兼容端点）、模型管理、Key 管理（加密存储）、默认模型、健康检查（`/v1/models` 可达性）。
-- 多供应商抽象层：统一 `chat(messages, tools) → stream`，供应商适配器管理（第 7.2 节）。
-
-**会话 / 日志审计**
-- 全量会话/消息/工具调用/追溯日志只读检索（时间、用户、工具名、状态过滤）。
-- **审计行为自身留痕**：所有只读检索本身写入追踪审计（audit_log type=audit.view）。
-
-**系统参数**
-- 会话保留天数、并发上限、默认模型、沙箱超时、重试次数等；修改写审计。
-
-**失败处理**
-- 数据源连通性测试失败：返回「连接失败: 原因」，不落状态变更。
-- 模型健康检查失败：标记该供应商状态为 unhealthy，`/auth/me` 与调用处提示，不影响其他供应商。
-
-### 6.2 接口清单
-
-| 方法 | 路径 | 说明 | 权限 |
-|---|---|---|---|
-| GET | `/admin/users` | 用户分页列表/搜索 | admin |
-| POST | `/admin/users` | 创建用户 | admin |
-| PATCH | `/admin/users/{id}` | 编辑（角色/状态/重置密码） | admin |
-| POST | `/admin/users/{id}/reset-password` | 重置密码 | admin |
-| GET | `/admin/tools` | 工具列表 | admin |
-| POST | `/admin/tools` | 注册工具 | admin |
-| PATCH | `/admin/tools/{id}` | 启停/参数配置 | admin |
-| POST | `/admin/tools/{id}/test` | 连通性测试 | admin |
-| GET | `/admin/datasources` | 数据源列表 | admin |
-| POST | `/admin/datasources` | 注册数据源 | admin |
-| PATCH | `/admin/datasources/{id}` | 编辑/测试 | admin |
-| GET | `/admin/llm` | 供应商/模型列表 | admin |
-| POST | `/admin/llm` | 新增供应商 | admin |
-| PATCH | `/admin/llm/{id}` | 编辑 Key/端点/默认模型 | admin |
-| POST | `/admin/llm/{id}/health` | 健康检查 | admin |
-| GET | `/admin/config` | 系统参数 | admin |
-| PATCH | `/admin/config` | 修改系统参数 | admin |
-| GET | `/admin/audits` | 审计日志列表 | admin |
-| GET | `/admin/audits/{id}` | 审计详情 | admin |
-| POST | `/admin/audits/export` | 审计导出（P1 占位） | admin |
-
-**关键管控规则**：所有 `/admin/**` 走 RBAC 中间件（权限点 `adm`）；数据隔离以各模块的 owner/tenant 条件为准；只读检索类型写审计。
-
----
-
-## 7. Agent 执行引擎与工具编排
-
-### 7.1 Agent 执行循环
-
-参考 Claude Code / Anthropic Agent 循环：
-
-```
-用户消息 → 组装 messages + tools(schema) → LLM 轮询：
-  如果 stop_reason == tool_use：
-      依次执行 tool，收集 tool_result，回灌 messages
-      重复
-  否则：返回最终回复
-```
-
-- 状态机：`pending → running → interrupted → done`；重试/降级事件均为 `agent_process` 事件变体。
-- 每次执行前 Checkpoint 落库（见 11.2），实现中断恢复与新会话断点续跑。
-- 中断：收到 `POST {mid}/stop` → `cancel_event.set()` → 循环在下一个安全点退出，已完成的工具结果落库，未完成的丢弃；中断状态写入 `agent_process`，前端标「已停止」。
-
-**为什么在「每轮 LLM 前」Checkpoint**：天然覆盖「单次回复边界」，即恢复粒度与 AGENT 步骤一致，避免恢复后出现半工具状态。
-
-### 7.2 工具调用协议
-
-统一协议（对齐 OpenAI 工具调用 JSON Schema 风格）：
-
-```json
-{
-  "name": "tool_name",
-  "description": "工具描述",
-  "input_schema": {
-    "type": "object",
-    "properties": {...},
-    "required": [...]
-  }
-}
-```
-
-- 执行结果统一返回 `tool_result`（含耗时、状态、结构化结果或错误信息）。
-- 错误语义统一：`{ "ok": true/false, "error_code": "TIMEOUT|VALIDATION|UPSTREAM", "message": "...", "retryable": true/false }`。
-- 参数校验：执行前 Pydantic 校验，失败返回 `VALIDATION`，LLM 可作为上下文重新请求。
-
-**多供应商 LLM 抽象层**（对齐第 1 轮方案 A）：
-
-```
-LLMProvider + factory
- ├── OpenAICompatProvider    (任选 OpenAI / 自建 vLLM / Azure OpenAI)
- └── AnthropicCompatProvider (预留)
-统一接口：chat(messages, tools, config) → AsyncIterator[StreamEvent]
-```
-
-- 供应商差异由各自的 adapter 消化，`agent_engine` 只看统一事件。
-- 流式：统一 `content.delta / tool_call.batch / tool_result / done` 事件，屏蔽供应商事件命名差异。
-
-**为什么 OpenAI 协议兼容为主**：生态最广、自建 vLLM / 任意 OpenAI 兼容供应商零适配，是中台扩展性的最低阻力路径。
-
-### 7.3 错误重试与降级策略
-
-| 错误 | 处理 | 重试 |
+| 风险 | 后果 | 缓解 |
 |---|---|---|
-| LLM 超时/上游 5xx | 重试，指数退避；超 max_retries 则降级（切换备用供应商模型） | 至多 3 次 |
-| 工具 VALIDATION | 参数错误，LLM 修正后重试（不计数） | 允许 |
-| 工具 UPSTREAM（数据源）失败 | 最近一次失败原因写入追溯；会话继续，Agent 尝试换表述/换工具 | ≤2 次 |
-| 工具 TIMEOUT | 杀沙箱容器，失败原因写入追溯，Agent 降级/重试 | ≤2 次 |
-| 沙箱拉起失败（资源不足） | 触发一次全局限流，提示稍后 | — |
+| 七表快照不完整 | 页面和模型使用不同样本，预测无法复现 | 同步前后行数、键和版本校验；取消截断 |
+| 计划价无渠道键 | 渠道级 What-if 可能误用同一价格 | 标记 channel fallback，展示覆盖状态 |
+| 成本/弹性无有效期 | 长期分析可能使用过期参考值 | P1 增加有效期/版本/渠道口径 |
+| 归因字段语义混淆 | 用户将解释结果当作因果结论 | 统一 impact_qty，并在 UI 标注解释性 |
+| 上游模型或 What-if 中断 | 任务悬挂、结果半写入 | 明确超时、任务状态、relay 原子替换和 502 |
+| 管理查询参数未生效 | 管理员误以为已过滤，造成审计误判 | 契约标注限制，补齐真实过滤 |
+| Agent 生成错误业务数字 | 误导决策 | 工具只返回结构化数据，Chat 只做投影和解释 |
 
-- 全部重试/降级动作均写入 `agent_process` 事件（见 10.2），保证可追溯。
-- 失败不中断会话：会话继续，Agent 按策略处理；「失败亦记录」为不可违背原则。
+### 12.2 必须保持的决策
 
-### 7.4 中断与恢复
-
-**中断（用户主动停止）**
-1. 前端 `POST /stop`；
-2. 服务端 `cancel_event.set()`；
-3. 循环在安全点退出，已完成的工具结果落库、未完成的丢弃；
-4. 中断状态写入事件，前端标「已停止」。
-
-**恢复（异常崩溃 / 主动续跑）**
-- Checkpoint 已保存上下文 state（`checkpoint.state`，含 messages 快照）与 `trace_id`。
-- 恢复策略：P0 仅支持从 Checkpoint 重新发起（不自动续跑），避免死代码路径；P1 再支持多轮续跑。
-
-**为什么 P0 只做 Checkpoint 重发起**：自动续跑涉及多轮上下文状态还原，成本高于收益；P0 保证不丢现场、可重发即可闭环业务。
-
-### 7.5 场景编排
-
-- 「场景」= 模型配置 + 工具集 + 系统提示词 的可组合实体（`scenario` 表）。
-- 首版预置「销售查询预测」场景：绑定查询工具 + 预测工具 + 提示词。
-- 编排支持在 P0-D2 工具中心配置，新场景创建流程走 `/admin/tools` + `/admin/llm`。
-- **为什么场景化**：把「工具集 + 模型 + 提示词」建模为一等实体后，新增业务无需改引擎，只需新增场景配置。
-
-### 7.6 自定义预测模型接入规范
-
-- 目标：业务自定义预测模型通过标准工具协议接入。
-- 规范：提供 `tools/` 目录下 `predict_*` 工具，声明 `name/description/input_schema/output_schema`。
-- 实现为一个 Python 规范接口：`def handle(args) -> ToolResult`（可含异步、可含内网调用）。
-- 工具打包为独立沙箱镜像，注册到工具中心即可被场景使用。
-- 数据协议：入参/出参封装 `{ data, meta }`；异常映射到统一错误语义。
-- **为什么这样做**：自定义模型与内置工具同一协议，天然继承沙箱/追溯/权限三类能力，降低成本与隔离缺口。
+- PostgreSQL 是业务运行时事实源；
+- fcst_detail 和 attribution_analysis_rows 是模型结果缓存，不是输入基座；
+- What-if 是基于 baseline 的规则式模拟和有限策略搜索；
+- 库存周转在数据不足时返回不可用；
+- 页面 API 和 Chat 工具必须共享服务层和数据口径；
+- API 契约中标记为当前限制的行为，在修复前不能被前端或 PRD 重新包装成能力。
 
 ---
 
-## 8. 数据源接入与沙箱隔离
-
-### 8.1 结构化数据源接入
-
-- **内部数据服务 API（P0）**：HTTP + JSON 返回，`http://sales-data.internal/api/v1/query`；内网免登录 + 服务账号 Token（Bearer）访问。
-- 数据源统一模型：`datasource` 表记录类型（HTTP API / 预留 SQL）、base_url、凭据（加密存储）、状态。
-- 连接安全：Token 仅存在于沙箱容器内白色环境变量，不回流到日志/上下文。
-- 查询工具：`query_sales_data(dimensions, time_range, filters)` → 结构化结果（表格数据）。
-- **白名单策略（H2）**：沙箱仅可访问内网白名单 IP:PORT；默认拒绝公网。「为什么」：走沙箱做统一出口网关，凭据与出网边界双收口，业务方无需自己管理凭据。
-
-### 8.2 沙箱隔离
-
-- 运行时：Docker daemon + 资源限制：
-  - 只读 rootfs、非 root 用户、
-  - `--memory / --cpus / --pids-limit`、
-  - 独立 bridge 网络 + iptables 出网白名单（仅放行内网白名单 IP:PORT，默认拒绝公网）。
-- 工具包为独立镜像启动容器，执行后销毁。
-- 超时上限（默认 30s，可配置）与资源配额，超限杀容器。
-- 「为什么选择 Docker 受限运行时」：内部威胁模型下 Docker 限制满足需求；gVisor/Kata 升级列入 P2。
-- 失败处理：容器拉起失败 / 超时 / OOM → 错误语义 `SANDBOX` 写入追溯，Agent 按 7.3 重试/降级。
-
----
-
-## 9. 权限与隔离体系
-
-### 9.1 RBAC 权限模型
-
-三表模型：**角色（role）/ 权限点（permission）/ 角色-权限（role_permission）**。
-
-- **预置角色**：`user`（普通用户）、`admin`（管理员）。
-- **权限点定义**：
-  - `chat:read` / `chat:send` / `chat:stop` / `chat:delete`（会话域）
-  - `trace:read`（追溯域）
-  - `adm:user.manage` / `adm:tool.manage` / `adm:llm.manage` / `adm:config.manage`（管理端）
-  - `audit:read`（审计只读）
-- **为什么表驱动而非硬编码**：P0 与写死成本几乎一致，直接打通 P1 自定义角色，避免返工。【确认】
-
-### 9.2 权限矩阵
-
-| 动作 | user | admin |
-|---|---|---|
-| 创建/访问自己的会话 | ✅ | ✅ |
-| 发送/停止消息 | ✅ | ✅ |
-| 查看自己的追溯 | ✅ | ✅ |
-| 管理他人会话 | ❌ | ❌（仅只读审计） |
-| 用户管理 | ❌ | ✅ |
-| 工具/数据源管理 | ❌ | ✅ |
-| LLM 配置 | ❌ | ✅ |
-| 系统参数 | ❌ | ✅ |
-| 全量审计检索 | ❌ | ✅ |
-
-### 9.3 三类隔离闭环
-
-| 隔离 | 落点 | 闭环要求 |
-|---|---|---|
-| **用户隔离** | 所有会话/消息/追溯查询强制 `owner_id = 当前用户`；管理员审计只读 | 越权 → 403 + 写入审计 |
-| **会话隔离** | 会话上下文（messages、checkpoint、trace）按 `conversation_id` 严格切分；单会话单字节级；**置顶仅对本人会话生效、owner 校验不变，不破坏隔离（【变更 v0.10】）** | 会话间零交叉 |
-| **沙箱隔离** | 执行环境专属容器；对象/网络/凭据隔离；白名单出网 | 工具互不干扰，凭据不泄露 |
-
-**用户隔离的服务端强约束**：任何 `GET/POST/PATCH/DELETE` 对会话/消息先校验 `owner_id` 再落库，不依赖前端过滤。
-
-### 9.4 审计与越权响应
-
-- 所有越权访问（403）写入审计：`{actor, target, action, reason: "permission_denied"}`。
-- 管理员审计检索本身留痕（type=`audit.view`）。
-- 敏感操作（创建用户、重置密码、用户自助修改密码【变更 v0.10】、改 key、删会话）均写审计。
-- 「为什么管理员只读」：审计域保持只读，管理员可看不可改，防篡改；管理行为本身留痕，形成「权限越大、留痕越重」约束。
-
----
-
-## 10. 全链路追溯日志
-
-### 10.1 追溯目标
-
-- 还原一次 Agent 执行：`消息 → 工具名 → 入参 → 结果 → 最终回复 → 失败原因/重试过程`。
-- 用户与管理员均可查看；用户看自己，管理员看全量（只读）。
-
-### 10.2 事件模型与字段
-
-核心概念：`trace_id（一次消息执行）→ node（阶段）→ events(有序事件数组)`。
-
-**trace 事件类型与字段**
-
-| 事件 | 关键字段 | 说明 |
-|---|---|---|
-| `message_created` | trace_id, message_id, direction | 用户消息入队 |
-| `agent_process` | state（starting/planning/executing/retrying/degrading/interrupted/done）, detail | Agent 阶段 |
-| `tool_call` | tool_name, input(payload), plan_index | 工具执行 |
-| `tool_result` | tool_name, output(result), duration_ms, status | 工具结果 |
-| `tool_error` | tool_name, error_code, message, retried | 失败与重试信息 |
-| `content_delta` | text | 流式文本增量 |
-| `done` | final_text | 最终回复 |
-
-统一 `events` 数组按序存储（JSONB），关键字段满足「还原一次执行」的最小集。
-
-### 10.3 还原能力验证
-
-对一次销售预测对话，还原链应为：
-
-```
-message_created（用户: "预测下月华东区销量"）
-  └─ agent_process.starting
-       └─ agent_process.executing
-            ├─ tool_call {query_sales_data(input:{region:华东, period:近6月})}
-            │    └─ tool_result {rows:[...], status:ok, duration_ms:1200}
-            │    └─ tool_error (若上游失败: error_code: UPSTREAM, retried: true)
-            ├─ tool_call {predict_sales_tool(input:{model:default, ...})}
-            │    └─ tool_result {forecast:[...], status:ok, duration_ms:3400}
-            └─ agent_process.done
-  └─ message_created（最终回复）或 content_delta 流式结束
-```
-
-**为什么这是可还原的**：任一环节的输入输出与状态均有事件留存，用户能逐条确认「做了什么/为何失败/如何降级」；这也是对标 deepseek-harness 的产物标准。
-
----
-
-## 11. 数据模型与主流程
-
-### 11.1 核心实体概览
-
-```
-user ─1─n─ conversation(status) ─1─n─ message(status)
-message(status) ─1─n─ message_event(status)      # 追溯事件链
-conversation ─1─1─ checkpoint(state)
-user ─1─n─ role_binding ─n─1─ role ─n─m─ role_permission ─n─1─ permission
-tool
-datasource
-llm_provider
-scenario
-sandbox_instance(status)   # 沙箱实例生命周期
-audit_log
-```
-
-**status 字段说明**：user(active/disabled)；conversation(active/archived/deleted)；message(sent/running/interrupted/completed/failed)；message_event(normal/anomaly)（追溯链完整性保护）。状态借助 status 支撑「运行中」显式呈现，避免与已终止执行混淆。
-
-### 11.2 关键数据表字段
-
-**user**：`id, email, password_hash, nickname, status, created_at, updated_at`
-**role**：`id, code, name, scope(system), builtin(bool)`
-**permission**：`id, code, name, desc`
-**role_permission**：`role_id, permission_id`
-**conversation**：`id, owner_id, title, status, pinned(bool), pinned_at, created_at, updated_at`（pinned/pinned_at 为【变更 v0.10】置顶能力）
-**message**：`id, conversation_id, role(user/assistant/system), content, trace_id, status, created_at`
-**message_event**：`id, trace_id, message_id, seq, type, payload(JSONB), created_at`
-**checkpoint**：`id, conversation_id, message_id, state(JSONB), trace_id, created_at`
-**tool**：`id, name, code, desc, status, scenario_id, config(JSONB), created_at, updated_at`
-**datasource**：`id, name, type(http_api/sql), base_url, credential_encrypted, whitelist, status`
-**llm_provider**：`id, name, base_url, api_key_encrypted, models(JSONB), default_model, vendor, status`
-**scenario**：`id, name, tool_ids, model_ref, system_prompt, enabled`
-**sandbox_instance**：`id, tool_id, container_id, status, created_at, terminated_at`
-**audit_log**：`id, actor_id, action, target_type, target_id, ip, detail(JSONB), created_at`
-**system_config**：`key, value(JSONB), updated_by, updated_at`
-**user_llm_config（【预留】P1，【变更 v0.10】）**：`id, user_id(unique), vendor, model_type, model_id, base_url, api_key_encrypted, status, created_at, updated_at`（BYOK 用户级模型配置预留表；用户未配置时回平台默认 `llm_provider`；API Key 与管理员 LLM 配置同标准加密存储，仅本人可见，见 H10）
-
-### 11.3 主流程时序
-
-**对话 → 工具 -> 沙箱 -> LLM 全链路时序**
-
-```
-前端 → POST /chat/conversations/{id}/messages   (JWT)
-  → RBAC: chat:send + owner 校验
-  → 建 message(status=running)
-  → 建 trace → sse 开始 → 组装(对话消息+工具 schema)
-  → AgentLoop:
-       LLM 调用(provider)
-       → 若 stop_reason=tool_use:
-            execute tool → sandbox(容器 + 出网) → 结果回灌 → 继续
-       → 否则: 最终回复
-  → 事件全程写 audit_log / message_event
-  → SSE done 结束流 ↓
-前端渲染: 工具卡片 + 结果表格/图表 + 最终回复
-```
-
-**管理员审计查看**
-
-```
-GET /admin/audits → RBAC: audit:read → 列表(只读) → 本次查看本身写 audit_log(type=audit.view)
-```
-
----
-
-## 12. 接口规范
-
-### 12.1 接口约定
-
-- Base URL：`/api/v1`；响应统一 `{code, message, data}`。
-- 认证：`Authorization: Bearer <access_token>`（JWT 无状态）。
-- 分页：cursor 制，`?cursor=&limit=20`。
-- 幂等：重要写操作支持 `Idempotency-Key` 防重复。
-
-### 12.2 用户端接口
-
-| 方法 | 路径 | 说明 | 权限 |
-|---|---|---|---|
-| POST | `/auth/register` | 内部邮箱注册 | 未认证 |
-| POST | `/auth/login` | 登录，返回 access+refresh | 未认证 |
-| GET | `/auth/me` | 用户信息+权限点 | 已认证 |
-| POST | `/auth/refresh` | 刷新令牌 | — |
-| POST | `/auth/logout` | 注销+吊销 refresh | 已认证 |
-| PATCH | `/auth/password` | 修改密码（校验原密码，【变更 v0.10】） | 已认证 |
-| PATCH | `/auth/me` | 更新昵称（【变更 v0.10】） | 已认证 |
-| GET | `/conversations` | 我的会话列表 | 本人 |
-| POST | `/conversations` | 新建会话 | 本人 |
-| GET | `/conversations/{id}` | 会话详情 | 本人 |
-| PATCH | `/conversations/{id}` | 重命名 | 本人 |
-| PATCH | `/conversations/{id}/pin` | 置顶/取消置顶（body `{pinned}`，【变更 v0.10】） | 本人 |
-| DELETE | `/conversations/{id}` | 删除（级联） | 本人 |
-| POST | `/conversations/{id}/messages` | 触发 SSE 会话 | 本人 |
-| POST | `/conversations/{id}/messages/{mid}/stop` | 停止当前生成 | 本人 |
-| GET | `/conversations/{id}/messages` | 历史消息分页 | 本人 |
-| GET | `/conversations/{id}/messages/{mid}/trace` | 追溯事件链 | 本人 |
-| GET | `/conversations/{id}/messages/{mid}/trace/export` | 可读导出 | 本人 |
-
-### 12.3 管理员端接口
-
-| 方法 | 路径 | 说明 | 权限 |
-|---|---|---|---|
-| GET | `/admin/users` | 用户列表/搜索 | admin |
-| POST | `/admin/users` | 创建用户 | admin |
-| PATCH | `/admin/users/{id}` | 编辑（角色/状态） | admin |
-| POST | `/admin/users/{id}/reset-password` | 重置密码 | admin |
-| GET | `/admin/tools` | 工具列表 | admin |
-| POST | `/admin/tools` | 注册工具 | admin |
-| PATCH | `/admin/tools/{id}` | 启停/参数配置 | admin |
-| POST | `/admin/tools/{id}/test` | 连通性测试 | admin |
-| GET | `/admin/datasources` | 数据源列表 | admin |
-| POST | `/admin/datasources` | 注册数据源 | admin |
-| PATCH | `/admin/datasources/{id}` | 编辑/测试 | admin |
-| GET | `/admin/llm` | 供应商/模型列表 | admin |
-| POST | `/admin/llm` | 新增供应商 | admin |
-| PATCH | `/admin/llm/{id}` | 编辑 Key/端点/默认模型 | admin |
-| POST | `/admin/llm/{id}/health` | 健康检查 | admin |
-| GET | `/admin/config` | 系统参数 | admin |
-| PATCH | `/admin/config` | 修改系统参数 | admin |
-| GET | `/admin/audits` | 审计日志列表 | admin |
-| GET | `/admin/audits/{id}` | 审计详情 | admin |
-| POST | `/admin/audits/export` | 审计导出（P1 占位） | admin |
-
-### 12.4 SSE 事件协议
-
-| 事件名 | 载荷 | 前端行为 |
-|---|---|---|
-| `message.created` | message_id | 新增助手消息占位 |
-| `message.delta` | text | 逐字追加 |
-| `agent.status` | state | 阶段状态卡 |
-| `agent.process` | state, detail | 阶段/重试/降级 |
-| `tool.call` | tool_name, input | 工具卡片折叠头 |
-| `tool.result` | tool_name, output_summary | 结果摘要 |
-| `tool_error` | tool_name, error_code, retried | 失败红标+原因+重试次数 |
-| `done` | final_text | 结束流；最终回复持久化 |
-| `error` | code, message | 终止 + 错误提示 |
-
-### 12.5 鉴权与错误码
-
-- JWT：access（15min）+ refresh（7d）双令牌；`/auth/refresh` 轮换；登出吊销。
-- 统一错误码：`401_UNAUTHORIZED / 403_FORBIDDEN（越权，触发审计） / 404_NOT_FOUND / 400_VALIDATION / 409_CONFLICT / 500_INTERNAL / 429_RATE_LIMIT`。
-- **错误提示语义（【变更 v0.10】）**：业务失败响应的 `message` 必须为可读文案（如「邮箱后缀不在白名单内（允许：@corp.com）」「密码必须同时包含大小写字母与数字」），错误码仅作技术标识、不作为用户展示内容；响应不裸堆技术异常堆栈，完整堆栈仅留存于后端日志。
-
----
-
-## 13. 部署与运维
-
-### 13.1 部署拓扑与 compose 编排
-
-```
-用户端 Vue 静态 / nginx 静态入口
- └─ FastAPI 容器 (api) ×1
- └─ PostgreSQL 15 容器 ×1
- └─ 沙箱 daemon 容器（Docker 权限、独立网络、iptables 白名单）
- └─ Redis（P1 队列/缓存预留，P0 可不部署）
-```
-
-`docker-compose.yml` 服务：`api`、`worker`（预留独立异步执行，见 P1-9）、`db`、`sandbox-daemon`、`nginx`（静态+反代）。
-
-### 13.2 数据库初始化与依赖顺序
-
-1. `db` 服务先启动（healthcheck `pg_isready`）。
-2. `api` 依赖 `db` healthy → 运行迁移（Alembic 自动 + 种子脚本创建默认 admin / 预置角色权限点 / 默认场景）。
-3. `sandbox-daemon` 构建工具基础镜像 + 拉取白名单网段。
-4. `nginx` 最后就绪，承载前端资源与反代 `/api`。
-
-**为什么用 Alembic 而非裸 SQL**：变更可版本化、可回滚，与「依赖锁定文件进版本管理」同一维护心智。
-
-### 13.3 环境与密钥管理
-
-- 后端配置环境变量（`.env`，不入版本库）：`DB_URL`、`JWT_SECRET`、`LLM_API_KEYS`、`INTERNAL_TOKEN`、`SANDBOX_WHITELIST_CIDRS` 等。
-- 密钥支持 Docker Secret / 外部 KMS（P1+）。
-- **为什么密钥不入库**：防泄密与生产安全事故，只进 Secret 管理。
-
-### 13.4 健康检查、监控与备份
-
-- 健康检查：`/healthz`（DB、LLM provider、沙箱 daemon 状态）。
-- 监控（P1）：结构化日志 + Prometheus 指标（请求量、Latency、Token 用量）。
-- 备份（P1）：PostgreSQL 每日 dump + 保留策略；快照前 MySQL（若选 MySQL）同方案。
-- `docker compose up -d` 单命令拉起；P0 验收需验证拉起到可注册/登录/对话一次。
-
----
-
-## 14. 路线图与验收要点
-
-### 14.1 里程碑总览
-
-| 阶段 | 周期（预估） | 交付重点 |
-|---|---|---|
-| P0 | 6~8 周 | MVP：双端、对话、追溯、沙箱、LLM、部署 |
-| P1 | 4~6 周 | GitHub OAuth、RAG、多模型切换、数据看板、审计导出、SQL 直连 |
-| P2 | 持续 | 深水区能力：负载均衡、数据权限细分、沙箱升级、市场/API 等 |
-
-### 14.2 P0 验收清单
-
-| # | 验收项 | 判定 |
-|---|---|---|
-| 1 | 注册/登录/内部邮箱白名单 | 白名单外注册被拒 |
-| 2 | 对话查询销售数据 | 自然语言→表格结果 |
-| 3 | 预测工具调用 + 可视化 | 前端可渲染预测图表 |
-| 4 | 追溯面板 | 消息→工具→入参→结果→最终回复可完整还原 |
-| 5 | 权限矩阵 | user/admin 行为严格匹配 9.2；越权 403 |
-| 6 | 三类隔离 | 会话/用户/沙箱交叉访问全部被拒 |
-| 7 | 流式输出 | SSE 事件实时、断线自动重连 |
-| 8 | 停止生成 | 中断后状态正确、无未完成工具残留 |
-| 9 | 管理员审计 | 全量检索 + 检索行为留痕 |
-| 10 | docker-compose 拉起 | `up -d`→迁移→种子→注册/登录/对话一次通过 |
-| 11 | 全链路日志还原 | 事件模型满足 10.3 用例 |
-| 12 | 失败处理 | 数据源故障可见失败原因，会话不中断 |
-| 13 | 注册失败原因可见 | 白名单外邮箱/弱密码提交后页面显示可读原因（非仅错误码，【变更 v0.10】） |
-| 14 | 个人设置-基础信息 | 昵称修改生效；改密后新密码可登录、旧密码失效；邮箱只读展示（【变更 v0.10】） |
-| 15 | 会话置顶 | 置顶项排最前（置顶时间倒序）、取消后恢复；他人会话不可置顶（403）（【变更 v0.10】） |
-
-### 14.3 P1 / P2 节奏建议
-
-- P1 优先级排序：GitHub OAuth → 管理台数据看板 → SQL 直连 → 自定义角色 → RAG → 审计导出 → 长任务队列。
-- P2 按运营反馈决策，不做排队承诺。
-
----
-
-## 15. 风险与开放问题
-
-### 15.1 风险清单
-
-| 风险 | 影响 | 应对 |
-|---|---|---|
-| 内部数据接口 SLA 不稳 | 查询工具高频超时 | 沙箱超时与重试梯度 + 失败原因透出 |
-| LLM 供应商不稳定/不可用 | 对话整体不可用 | 多供应商 + 健康检查 + 降级切换（P1） |
-| 沙箱逃逸/内网穿透 | 内网白名单被绕 | 最小权限、出网白名单、读网/凭据不放行回传 |
-| Key/凭据泄露 | 数据与模型成本 | 加密存储 + 最小化 Token 范围 + 审计 |
-| 追溯数据量膨胀 | 存储/查询变慢 | JSONB+事件数组、保留策略、分区（P1） |
-| 管理员误操作 | 权限配置破坏 | 二次确认 + 审计 + 防自禁用 |
-| 业务对接自定义模型排期不确定 | P1 范围风险 | 工具规范提前定稿，测试覆盖搭建 |
-| 用户自配模型 Key 泄露/成本失控（P1 BYOK） | 用户模型 Key 泄露或误配高成本模型 | 与管理员 LLM 配置同标准加密存储 + 仅本人可见（H10）；P1 上线前评审 Key 保管与额度控制（【变更 v0.10】） |
-
-### 15.2 开放问题
-
-1. 内部销售数据接口真实 SLA / 白名单网段确认。
-2. 模型供应商/自建推理实际可用性。
-3. P0 阶段是否需要远程 DeepSeek 兼容网关（可后续接入）。
-4. 管理员多级（超级管理员/普通管理员）是否有诉求（默认 P1 自定义角色承接）。
-5. 业务方对预测模型接入接口细节的确认（7.6 规范是否满足其需求）。
-
----
-
-## 附录 A：双端权限矩阵核验表
-
-| 能力 | user | admin | 核验点 |
-|---|---|---|---|
-| 自己会话 CRUD | ✅ | ✅ | owner_id 条件 |
-| 发送/停止消息 | ✅ | ✅ | chat:send/stop |
-| 查自己追溯 | ✅ | ✅ | trace:read + owner |
-| 修改自己昵称/密码（个人设置） | ✅ | ✅ | 本人认证 + 敏感操作写审计（【变更 v0.10】） |
-| 全量会话/日志审计 | ❌ | ✅（只读） | admin + audit:read |
-| 用户管理 | ❌ | ✅ | adm:user.manage |
-| 工具/数据源管理 | ❌ | ✅ | adm:tool.manage |
-| LLM 配置 | ❌（P1 预留：BYOK 用户级） | ✅ | adm:llm.manage |
-| 系统参数 | ❌ | ✅ | adm:config.manage |
-| 审计检索自身留痕 | — | 始终 | audit.view 写入 |
-
-## 附录 B：追溯日志字段还原对照
-
-| 还原目标 | 依赖字段 | 验证 |
-|---|---|---|
-| 用户发了什么 | message.content + message_created | ✅ |
-| 执行了哪些工具 | message_event type=tool_call | ✅ |
-| 工具入参 | message_event.payload.input | ✅ |
-| 工具结果 | message_event.payload.output | ✅ |
-| 失败原因 | message_event.payload.error_code + error_message | ✅ |
-| 重试次数 | message_event.payload.retried | ✅ |
-| 最终回复 | message.content / done.final_text | ✅ |
-| 沙箱生命周期 | sandbox_instance(container_id, status, terminated_at) | ✅ |
-
----
+## 13. 术语和参考
+
+| 术语 | 含义 |
+|---|---|
+| baseline | 选定预测版本的未扰动预测明细 |
+| relay | 将模型结果完整校验并写入 backend PG 语义表的过程 |
+| coverage | 某指标有有效数据的数量或行覆盖比例 |
+| What-if | 在 baseline 上施加有限策略后的规则式模拟 |
+| strategy | What-if 可选择的有限策略目录项 |
+| attribution | 对预测结果进行因子分解的解释性结果 |
+| façade | 面向工作台的简化 API 投影层 |
+| trace | 一次消息执行的有序事件集合 |
+| internal tool | 后端进程内执行的受控工具 |
+| sandbox tool | 通过 sandbox daemon 隔离执行的工具 |
+
+参考文件：
+
+- [工作台功能定义](./prd_workbench.md)
+- [数据检查与工作台数据事实](./data-inspect.md)
+- [LCT-predict-agent API 契约](./api-contract.md)

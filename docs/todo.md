@@ -33,6 +33,20 @@
 | 19 | T19 | Chat SSE 实时状态转发修复（chat-sse-live-relay-fix） | T18 | completed | - | [plan](plans/T19-chat-sse-live-relay-fix-2026-09-03.md) |
 | 20 | T20 | 聊天 token 流式输出闭环（chat-token-stream-ui） | T19 | completed | - | [plan](plans/T20-chat-token-stream-ui-2026-09-03.md) |
 | 21 | T21 | What-if 基线与异步策略工作流（whatif-async-simulation-workflow） | T05、T14、T20 | completed | - | [plan](plans/T21-whatif-async-simulation-workflow-2026-09-03.md) |
+| 22 | T22 | 预测明细契约与价格持久化（prediction-detail-contract-price-cost） | T21 | completed | - | [plan](plans/T22-prediction-detail-contract-price-cost-2026-09-04.md) |
+| 23 | T23 | 六个月型号级基线汇总（six-month-sku-aggregation） | T22 | completed | - | [plan](plans/T23-six-month-sku-aggregation-2026-09-04.md) |
+| 24 | T24 | 毛利覆盖与库存周转展示（margin-inventory-metrics） | T23 | completed | - | [plan](plans/T24-margin-inventory-metrics-2026-09-04.md) |
+| 25 | T25 | 销量与销售额双目标优化（sales-target-optimization） | T23、T24 | completed | - | [plan](plans/T25-sales-target-optimization-2026-09-04.md) |
+| 26 | T26 | What-if 契约集成验收（whatif-contract-integration-acceptance） | T22、T23、T24、T25 | completed | - | [plan](plans/T26-whatif-contract-integration-acceptance-2026-09-04.md) |
+| 27 | T27 | Agent optimize 品类契约与空基线保护（agent-category-contract-empty-baseline） | T26 | completed | - | [plan](plans/T27-agent-category-contract-empty-baseline-2026-09-04.md) |
+| 28 | T28 | 历史销售额持久化与 What-if 基准价解析（historical-price-baseline-resolution） | T26 | completed | - | [plan](plans/T28-historical-price-baseline-resolution-2026-09-04.md) |
+| 29 | T29 | What-if 规则策略基准价与缺失价处理（whatif-price-strategy-resolution） | T27、T28 | completed | - | [plan](plans/T29-whatif-price-strategy-resolution-2026-09-04.md) |
+| 30 | T30 | What-if Agent 与基准价闭环验收（whatif-agent-price-integration-acceptance） | T27、T28、T29 | completed | - | [plan](plans/T30-whatif-agent-price-integration-acceptance-2026-09-04.md) |
+| 31 | T31 | Agent 预测/归因工作流与证据闭环（agent-forecast-attribution-workflow） | T30 | completed | - | [plan](plans/T31-agent-forecast-attribution-workflow-2026-09-04.md) |
+| 32 | T32 | 聊天预测/白盒归因复合结果契约（chat-forecast-attribution-envelope） | T31 | completed | - | [plan](plans/T32-chat-forecast-attribution-envelope-2026-09-04.md) |
+| 33 | T33 | 聊天 What-if 策略矩阵与达成趋势（chat-whatif-strategy-envelope） | T32 | completed | - | [plan](plans/T33-chat-whatif-strategy-envelope-2026-09-04.md) |
+| 34 | T34 | 聊天工作台可视化与三子栏复用（chat-workbench-visualization-tabs） | T33 | completed | - | [plan](plans/T34-chat-workbench-visualization-tabs-2026-09-04.md) |
+| 35 | T35 | Agent 预测与 What-if 场景闭环验收（agent-prediction-scenarios-acceptance） | T31、T32、T33、T34 | completed | - | [plan](plans/T35-agent-prediction-scenarios-acceptance-2026-09-04.md) |
 
 ---
 

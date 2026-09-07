@@ -1,10 +1,22 @@
 export type Intent = "history" | "forecast" | "attribution" | "whatif";
 
+export type ResponseType =
+  | "history"
+  | "forecast"
+  | "attribution"
+  | "report"
+  | "optimization"
+  | "simulation";
+
+export type NullableNumber = number | null;
+
 export interface Metric {
   label: string;
-  value: string;
+  value: string | number | null;
   unit?: string;
 }
+
+export type TextMetrics = Metric[] | Record<string, string | number | null>;
 
 export interface TableColumn {
   key: string;
@@ -12,28 +24,172 @@ export interface TableColumn {
   align?: "left" | "right" | "center";
 }
 
-export type ChartType = "line_band" | "bar" | "line" | "pie" | "waterfall";
+export type KnownChartType =
+  | "legacy"
+  | "composite"
+  | "strategy_dashboard"
+  | "line_band"
+  | "bar"
+  | "line"
+  | "pie"
+  | "waterfall"
+  | "strategy_matrix"
+  | "attainment_trend";
+
+/** Open string union keeps unknown server chart types diagnosable at runtime. */
+export type ChartType = KnownChartType | (string & {});
+
+export interface CoverageState {
+  value?: number | null;
+  status?: string | null;
+  reason?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ChartEvidence {
+  tools?: string[];
+  versions?: string[];
+  categories?: string[];
+  forecast_count?: number;
+  attribution_count?: number;
+  matched_attribution_count?: number;
+  [key: string]: unknown;
+}
+
+export interface ChartMeta {
+  evidence?: ChartEvidence | Record<string, unknown>;
+  assumptions?: string[] | Record<string, unknown>;
+  coverage?: CoverageState | Record<string, unknown>;
+  status?: string | null;
+  reason?: string | null;
+  [key: string]: unknown;
+}
+
+export interface ForecastTopSku {
+  rank?: number;
+  sku: string;
+  periods: string[];
+  forecast: NullableNumber[];
+  [key: string]: unknown;
+}
+
+export interface LineBandChartData {
+  periods: string[];
+  history: NullableNumber[];
+  forecast: NullableNumber[];
+  split_period?: string | null;
+  top_skus: ForecastTopSku[];
+  [key: string]: unknown;
+}
+
+export interface WaterfallChartData {
+  sku?: string;
+  xAxis: string[];
+  placeholder: NullableNumber[];
+  values: NullableNumber[];
+  labels: string[];
+  colors: string[];
+  [key: string]: unknown;
+}
+
+export interface StrategyMatrixData {
+  columns: TableColumn[];
+  rows: Record<string, unknown>[];
+  total: number;
+  [key: string]: unknown;
+}
+
+export interface CumulativeSeries {
+  qty: NullableNumber[];
+  amount: NullableNumber[];
+  [key: string]: unknown;
+}
+
+export interface AttainmentTrendData {
+  months: string[];
+  cumulative: boolean;
+  baseline: CumulativeSeries;
+  simulated: CumulativeSeries;
+  target: CumulativeSeries;
+  [key: string]: unknown;
+}
+
+interface ChartCardBase<T extends ChartType, D> {
+  type: T;
+  title: string;
+  data: D;
+  meta?: ChartMeta;
+}
+
+export type LineBandChartCard = ChartCardBase<"line_band", LineBandChartData>;
+export type WaterfallChartCard = ChartCardBase<"waterfall", WaterfallChartData>;
+export type StrategyMatrixChartCard = ChartCardBase<"strategy_matrix", StrategyMatrixData>;
+export type AttainmentTrendChartCard = ChartCardBase<"attainment_trend", AttainmentTrendData>;
+export type UnknownChartCard = ChartCardBase<string, unknown>;
+export type AgentChartCard =
+  | LineBandChartCard
+  | WaterfallChartCard
+  | StrategyMatrixChartCard
+  | AttainmentTrendChartCard
+  | UnknownChartCard;
+
+export interface LegacyChart {
+  type: Exclude<KnownChartType, "composite" | "strategy_dashboard">;
+  option?: Record<string, unknown>;
+  meta?: ChartMeta;
+  [key: string]: unknown;
+}
+
+export interface UnknownChart {
+  type: string;
+  option?: Record<string, unknown>;
+  meta?: ChartMeta;
+  [key: string]: unknown;
+}
+
+export interface CompositeChart {
+  type: "composite";
+  cards: AgentChartCard[];
+  option?: Record<string, unknown>;
+  meta?: ChartMeta;
+  [key: string]: unknown;
+}
+
+export interface StrategyDashboardChart {
+  type: "strategy_dashboard";
+  cards: AgentChartCard[];
+  option?: Record<string, unknown>;
+  meta?: ChartMeta;
+  [key: string]: unknown;
+}
+
+export type AgentChart = LegacyChart | CompositeChart | StrategyDashboardChart | UnknownChart;
 
 export interface AgentResultEnvelope {
-  intent: Intent;
-  text: {
+  /** Legacy route label; response_type is authoritative for new envelopes. */
+  intent?: Intent;
+  response_type?: ResponseType | string;
+  text?: {
     title: string;
     markdown: string;
-    metrics?: Metric[];
+    metrics?: TextMetrics;
   };
-  chart?: {
-    type: ChartType;
-    option: Record<string, unknown>;
-  };
+  chart?: AgentChart;
   table?: {
     columns: TableColumn[];
     rows: Record<string, unknown>[];
+    total?: number;
   };
   meta?: {
-    tool: string;
-    latency_ms: number;
+    tool?: string;
+    latency_ms?: number;
     cached?: boolean;
-    status?: string;
+    status?: string | null;
+    reason?: string | null;
+    coverage?: CoverageState | Record<string, unknown>;
+    evidence?: ChartEvidence | Record<string, unknown>;
+    assumptions?: string[] | Record<string, unknown>;
+    [key: string]: unknown;
   };
   /** 联想追问（最多 3 条），点击后作为下一轮提问 */
   follow_ups?: string[];
@@ -69,8 +225,6 @@ export interface ChatParams {
   forecastMonth?: string;
   /** 重新预测：跳过缓存强制调模型 */
   forceRefresh?: boolean;
-  /** 追问时带上上一轮意图，后端字段 prior_intent */
-  prior_intent?: Intent;
 }
 
 export interface ChatMessage {

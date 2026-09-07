@@ -2,14 +2,97 @@ import ReactECharts from "echarts-for-react";
 import { ChartLine } from "@phosphor-icons/react";
 import { useAppStore } from "../store";
 import { Skeleton } from "./InsightPanel";
-import type { AgentResultEnvelope, ChartType } from "../types";
+import type {
+  AgentChart,
+  AgentChartCard,
+  AgentResultEnvelope,
+  ChartType,
+  CompositeChart,
+  StrategyDashboardChart,
+} from "../types";
+import {
+  buildForecastTrendOption,
+  buildWaterfallOption,
+  isLineBandCard,
+  isWaterfallCard,
+} from "./agent/ForecastAttributionChart";
+import {
+  buildAttainmentTrendOption,
+  isAttainmentTrendCard,
+  isStrategyMatrixCard,
+  StrategyMatrixTable,
+} from "./agent/StrategyDashboard";
 
 export function chartTypeLabel(type?: ChartType): string {
+  if (type === "composite") return "预测 + 白盒归因";
+  if (type === "strategy_dashboard") return "策略矩阵 + 达成趋势";
   if (type === "line_band") return "历史实线 + 预测虚线";
   if (type === "bar") return "对比 / 归因";
   if (type === "pie") return "结构占比";
   if (type === "waterfall") return "增减拆解";
-  return "趋势对比";
+  if (type === "strategy_matrix") return "策略矩阵";
+  if (type === "attainment_trend") return "累计达成趋势";
+  if (type === "legacy" || type === "line") return "趋势对比";
+  return type ? `图表（${type}）` : "趋势对比";
+}
+
+function isCardChart(chart: AgentChart): chart is CompositeChart | StrategyDashboardChart {
+  return (chart.type === "composite" || chart.type === "strategy_dashboard") && Array.isArray(chart.cards);
+}
+
+function LegacyChartBody({ chart, height }: { chart: AgentChart; height: number }) {
+  const supportedLegacyTypes = new Set([
+    "legacy",
+    "line_band",
+    "bar",
+    "line",
+    "pie",
+    "waterfall",
+    "strategy_matrix",
+    "attainment_trend",
+  ]);
+  if (!chart.option || !supportedLegacyTypes.has(chart.type)) {
+    return (
+      <div className="rounded border border-dashed border-border px-3 py-6 text-center text-sm text-muted-fg">
+        暂无可用图表（类型：{chart.type}）
+      </div>
+    );
+  }
+  return <ReactECharts option={chart.option} style={{ height, width: "100%" }} notMerge lazyUpdate opts={{ renderer: "canvas" }} />;
+}
+
+function ChartCardBody({ card, height }: { card: AgentChartCard; height: number }) {
+  if (isLineBandCard(card)) {
+    return <ReactECharts option={buildForecastTrendOption(card.data)} style={{ height, width: "100%" }} notMerge lazyUpdate opts={{ renderer: "canvas" }} />;
+  }
+  if (isWaterfallCard(card)) {
+    return <ReactECharts option={buildWaterfallOption(card.data)} style={{ height: Math.max(height, 320), width: "100%" }} notMerge lazyUpdate opts={{ renderer: "canvas" }} />;
+  }
+  if (isStrategyMatrixCard(card)) {
+    return <StrategyMatrixTable data={card.data} compact />;
+  }
+  if (isAttainmentTrendCard(card)) {
+    return <ReactECharts option={buildAttainmentTrendOption(card.data)} style={{ height, width: "100%" }} notMerge lazyUpdate opts={{ renderer: "canvas" }} />;
+  }
+  return (
+    <div className="rounded border border-dashed border-border px-3 py-6 text-center text-sm text-muted-fg">
+      暂无可用图表（类型：{card.type}）
+    </div>
+  );
+}
+
+function CompositeChartBody({ chart, height }: { chart: CompositeChart | StrategyDashboardChart; height: number }) {
+  if (!chart.cards.length) return <LegacyChartBody chart={chart} height={height} />;
+  return (
+    <div className="space-y-5">
+      {chart.cards.map((card, index) => (
+        <section key={`${card.type}-${card.title}-${index}`} aria-label={card.title}>
+          <div className="mb-2 text-sm font-semibold">{card.title}</div>
+          <ChartCardBody card={card} height={height} />
+        </section>
+      ))}
+    </div>
+  );
 }
 
 export function ChartBody({
@@ -21,22 +104,17 @@ export function ChartBody({
   height?: number;
   typeHint?: string;
 }) {
-  if (!envelope.chart) return null;
+  const chart = envelope.chart;
+  if (!chart) return null;
   return (
     <div>
       <div className="mb-2 flex items-center justify-between text-sm font-semibold">
         <span>可视化图表</span>
         <span className="text-[11px] font-normal text-muted-fg">
-          {typeHint || chartTypeLabel(envelope.chart.type)}
+          {typeHint || chartTypeLabel(chart.type)}
         </span>
       </div>
-      <ReactECharts
-        option={envelope.chart.option}
-        style={{ height, width: "100%" }}
-        notMerge
-        lazyUpdate
-        opts={{ renderer: "canvas" }}
-      />
+      {isCardChart(chart) ? <CompositeChartBody chart={chart} height={height} /> : <LegacyChartBody chart={chart} height={height} />}
     </div>
   );
 }
@@ -65,13 +143,7 @@ export function ChartPanel() {
           {chartTypeLabel(envelope.chart.type)}
         </span>
       </div>
-      <ReactECharts
-        option={envelope.chart.option}
-        style={{ height: 320, width: "100%" }}
-        notMerge
-        lazyUpdate
-        opts={{ renderer: "canvas" }}
-      />
+      <ChartBody envelope={envelope} height={320} />
     </section>
   );
 }

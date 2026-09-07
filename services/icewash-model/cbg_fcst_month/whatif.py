@@ -6,13 +6,14 @@ backend 仅 taskid 转发，前端工作台下拉与 LLM 解析均从 `/whatif/s
 
 - STRATEGY_CATALOG：8 条策略（feat-icewash §3.4 命名）+ 经验提升/价格弹性公式 + 适用 status 分组。
 - simulate_row：单 SKU 演算（对齐 ref whatifSimulate.ts simulateRow 语义，重新落到 icewash）。
-- optimize_row / search_optimize：给定目标销量 → 候选取 argmin|销量-目标|（§3.5，按 statuses 过滤）。
+- optimize_row / search_optimize：给定目标销量（可选销售额）→ 候选取最小归一化目标差距（§3.5，按 statuses 过滤）。
 
 纯计算层：只依赖 numpy（不依赖 lightgbm / pandas / PG / MySQL）。baseline 由调用方（server 端点 /
 backend 工具）传入 per-SKU 行，本模块不读取预测产物。
 """
 from __future__ import annotations
 
+from math import isfinite
 from typing import Any, Dict, List, Optional
 
 # 加大投流二级档位（align ref）
@@ -44,7 +45,7 @@ STRATEGY_CATALOG: List[Dict[str, Any]] = [
         "default_param": "-8%",
         "param_kind": "price_pct",
         "qty_effect": "%ΔQty = Ed × |ΔP|（上限 80%）",
-        "price_effect": "计划价 × (1+ΔP)",
+        "price_effect": "基线价 × (1+ΔP)",
         "summary": "按型号价格弹性系数 Ed 调量；默认降价 8%",
     },
     {
@@ -90,7 +91,7 @@ STRATEGY_CATALOG: List[Dict[str, Any]] = [
         "default_param": "+15%",
         "param_kind": "atv_pct",
         "qty_effect": "基线 × 1.10",
-        "price_effect": "计划价 × (1+ATV%)",
+        "price_effect": "基线价 × (1+ATV%)",
         "summary": "量 +10%；有效客单按 ATV 溢价提升（默认 +15%）",
     },
     {
@@ -112,7 +113,7 @@ STRATEGY_CATALOG: List[Dict[str, Any]] = [
         "default_param": "-30%",
         "param_kind": "price_pct",
         "qty_effect": "基线 × 0.65",
-        "price_effect": "计划价 × (1+折扣%)",
+        "price_effect": "基线价 × (1+折扣%)",
         "summary": "尾货清理：量 -35%，默认价 -30%",
     },
 ]
@@ -124,6 +125,31 @@ STATUS_GROUP_LABELS = {
 }
 
 PRICE_CUT_CAP = 0.8  # 降价促销提量上限（对齐 ref：min(0.8, Ed×|ΔP|)）
+
+
+def _coerce_price(value: Any) -> Optional[float]:
+    """Return a finite, non-negative price while preserving explicit zero."""
+    if value in (None, ""):
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not isfinite(parsed) or parsed < 0:
+        return None
+    return parsed
+
+
+def resolve_detail_price(
+    detail: Dict[str, Any], row_baseline_price: Optional[float]
+) -> Optional[float]:
+    """Resolve the effective baseline price for one forecast detail.
+
+    The backend has already resolved the planned price or historical fallback;
+    the model must not infer a different price source during simulation.
+    """
+    resolved = _coerce_price(detail.get("baseline_price"))
+    return resolved if resolved is not None else _coerce_price(row_baseline_price)
 
 
 def _strategy_definition(strategy_id: str) -> Optional[Dict[str, Any]]:
@@ -176,7 +202,7 @@ def status_group(status: Optional[str]) -> str:
 
 
 def resolve_ed(elasticity_coef: Optional[float], elasticity_class: Optional[str]) -> float:
-    """返回弹性系数 Ed（就近读 icewash 产物里的 plan_price 弹性；缺省时按类别 fallback）。"""
+    """返回弹性系数 Ed（优先读取价格弹性表；缺省时按类别 fallback）。"""
     if elasticity_coef is not None and elasticity_coef > 0:
         return float(elasticity_coef)
     cls = (elasticity_class or "").strip()
@@ -214,15 +240,31 @@ def strategies_response(status: Optional[str] = None) -> Dict[str, Any]:
 def simulate_row(
     *,
     baseline_qty: float,
-    plan_price: Optional[float],
+    baseline_price: Optional[float],
     strategy_id: str,
     param: Optional[str],
     ed: float,
     traffic_tier: Optional[str] = None,
+    details: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """单 SKU 演算（对齐 ref simulateRow 语义）。返回 {sim_qty, sim_price, effect_note}。"""
+    """单 SKU 演算（对齐 ref simulateRow 语义）。
+
+    ``details`` 存在时，所有月份/渠道明细使用同一个策略，再汇总为一个
+    型号结果；没有明细时保留原来的单行计算兼容路径。
+    """
+    if details:
+        return _simulate_details(
+            baseline_qty=baseline_qty,
+            baseline_price=baseline_price,
+            strategy_id=strategy_id,
+            param=param,
+            ed=ed,
+            traffic_tier=traffic_tier,
+            details=details,
+        )
+
     base_qty = float(baseline_qty or 0.0)
-    base_price = float(plan_price or 0.0)
+    base_price = _coerce_price(baseline_price)
     sim_price = base_price
     sim_qty = base_qty
     effect_note = "不变"
@@ -235,7 +277,7 @@ def simulate_row(
         pct = parse_param_pct(used_param) or -0.08
         if pct > 0:
             pct = -abs(pct)
-        sim_price = base_price * (1 + pct)
+        sim_price = base_price * (1 + pct) if base_price is not None else None
         lift = min(PRICE_CUT_CAP, max(0.0, ed * abs(pct)))
         sim_qty = base_qty * (1 + lift)
         effect_note = f"降价 {pct*100:.1f}% · Ed={ed:.2f} · 量 +{lift*100:.1f}%"
@@ -243,7 +285,7 @@ def simulate_row(
         pct = parse_param_pct(used_param) or -0.30
         if pct > 0:
             pct = -abs(pct)
-        sim_price = base_price * (1 + pct)
+        sim_price = base_price * (1 + pct) if base_price is not None else None
         sim_qty = base_qty * 0.65
         effect_note = f"清仓折扣 {pct*100:.1f}% · 量 -35%"
     elif sid == "traffic_boost":
@@ -265,7 +307,7 @@ def simulate_row(
         effect_note = f"赠品促销 · 量 +{lift*100:.1f}%"
     elif sid == "bundle":
         atv = parse_param_pct(used_param) if parse_param_pct(used_param) is not None else 0.15
-        sim_price = base_price * (1 + max(0.0, atv))
+        sim_price = base_price * (1 + max(0.0, atv)) if base_price is not None else None
         sim_qty = base_qty * 1.10
         effect_note = f"套购 · 量 +10% · 客单 +{atv*100:.1f}%"
     elif sid == "prelaunch":
@@ -273,54 +315,216 @@ def simulate_row(
         effect_note = "提前铺货 · 量 +12%"
     # maintain 及未知策略：不变
 
+    sim_amount = float(sim_qty) * sim_price if sim_price is not None else None
+    price_coverage = 1.0 if base_price is not None else 0.0
     return {
         "sim_qty": round(float(sim_qty), 2),
-        "sim_price": round(float(sim_price), 2),
+        "sim_price": round(float(sim_price), 2) if sim_price is not None else None,
+        "sim_amount": round(sim_amount, 2) if sim_amount is not None else None,
+        "sim_gross_profit": None,
         "effect_note": effect_note,
         "param": used_param or None,
         "traffic_tier": used_tier,
+        "price_coverage_qty": price_coverage,
+        "price_status": "complete" if base_price is not None else "missing",
+        "cost_coverage_qty": 0.0,
+        "cost_status": "missing",
+        "gross_coverage_qty": 0.0,
+        "gross_profit_status": "missing",
+    }
+
+
+def _simulate_details(
+    *,
+    baseline_qty: float,
+    baseline_price: Optional[float],
+    strategy_id: str,
+    param: Optional[str],
+    ed: float,
+    traffic_tier: Optional[str],
+    details: List[Dict[str, Any]],
+) -> Dict[str, Any]:
+    """Apply one strategy to each forecast detail and aggregate the result."""
+    simulated_details: List[Dict[str, Any]] = []
+    total_qty = 0.0
+    total_baseline_qty = 0.0
+    total_amount = 0.0
+    total_gross_profit = 0.0
+    priced_qty = 0.0
+    cost_qty = 0.0
+    gross_qty = 0.0
+    resolved_price_flags: List[bool] = []
+    first_effect: Optional[str] = None
+
+    for detail in details:
+        raw_qty = detail.get("forecast_qty", detail.get("baseline_qty", 0.0))
+        try:
+            detail_qty = float(raw_qty or 0.0)
+        except (TypeError, ValueError):
+            detail_qty = 0.0
+        detail_price = resolve_detail_price(detail, baseline_price)
+        resolved_price_flags.append(detail_price is not None)
+        detail_coef = detail.get("elasticity_coef")
+        detail_class = detail.get("elasticity_class")
+        nested_elasticity = detail.get("elasticity")
+        if isinstance(nested_elasticity, dict):
+            if detail_coef in (None, ""):
+                detail_coef = nested_elasticity.get("coefficient")
+            if detail_class in (None, ""):
+                detail_class = nested_elasticity.get("elasticity_class")
+        try:
+            parsed_coef = float(detail_coef) if detail_coef not in (None, "") else None
+        except (TypeError, ValueError):
+            parsed_coef = None
+        detail_ed = (
+            resolve_ed(parsed_coef, str(detail_class) if detail_class not in (None, "") else None)
+            if parsed_coef is not None or detail_class not in (None, "")
+            else ed
+        )
+        result = simulate_row(
+            baseline_qty=detail_qty,
+            baseline_price=detail_price,
+            strategy_id=strategy_id,
+            param=param,
+            ed=detail_ed,
+            traffic_tier=traffic_tier,
+        )
+        sim_qty = float(result["sim_qty"])
+        sim_price = result.get("sim_price")
+        sim_price_value = float(sim_price) if sim_price is not None else None
+        sim_amount = sim_qty * sim_price_value if sim_price_value is not None else None
+        if detail_price is not None:
+            priced_qty += detail_qty
+            if sim_amount is not None:
+                total_amount += sim_amount
+        raw_cost = detail.get("cost_price")
+        try:
+            cost = float(raw_cost) if raw_cost not in (None, "") else None
+        except (TypeError, ValueError):
+            cost = None
+        if cost is not None:
+            cost_qty += detail_qty
+        sim_gross_profit = (
+            (sim_price_value - cost) * sim_qty
+            if cost is not None and sim_price_value is not None
+            else None
+        )
+        if sim_gross_profit is not None:
+            total_gross_profit += sim_gross_profit
+            gross_qty += detail_qty
+        total_baseline_qty += detail_qty
+        total_qty += sim_qty
+        first_effect = first_effect or str(result.get("effect_note") or "不变")
+        simulated_details.append({
+            **detail,
+            "sim_qty": round(sim_qty, 2),
+            "sim_price": round(sim_price_value, 2) if sim_price_value is not None else None,
+            "sim_amount": round(sim_amount, 2) if sim_amount is not None else None,
+            "sim_gross_profit": round(sim_gross_profit, 2) if sim_gross_profit is not None else None,
+            "price_status": "matched" if detail_price is not None else "missing",
+        })
+
+    price_coverage = priced_qty / total_baseline_qty if total_baseline_qty > 0 else 0.0
+    cost_coverage = cost_qty / total_baseline_qty if total_baseline_qty > 0 else 0.0
+    gross_coverage = gross_qty / total_baseline_qty if total_baseline_qty > 0 else 0.0
+    price_complete = (
+        price_coverage >= 1.0
+        if total_baseline_qty > 0
+        else bool(resolved_price_flags) and all(resolved_price_flags)
+    )
+    aggregate_price = total_amount / total_qty if price_complete and total_qty > 0 else None
+    aggregate_amount = total_amount if price_complete else None
+    aggregate_gross_profit = (
+        total_gross_profit if price_complete and gross_qty > 0 else None
+    )
+    # Keep the legacy scalar result shape while exposing the detail-level
+    # values needed by the SKU matrix and monthly trend chart.
+    return {
+        "sim_qty": round(total_qty, 2),
+        "sim_price": round(aggregate_price, 2) if aggregate_price is not None else None,
+        "sim_amount": round(aggregate_amount, 2) if aggregate_amount is not None else None,
+        "sim_gross_profit": round(aggregate_gross_profit, 2)
+        if aggregate_gross_profit is not None
+        else None,
+        "effect_note": f"{first_effect or '不变'} · 已应用 {len(simulated_details)} 条明细",
+        "param": effective_strategy_param(strategy_id, param) or None,
+        "traffic_tier": effective_traffic_tier(strategy_id, traffic_tier),
+        "price_coverage_qty": round(price_coverage, 6),
+        "price_status": "complete" if price_coverage >= 1 else "partial" if price_coverage > 0 else "missing",
+        "cost_coverage_qty": round(cost_coverage, 6),
+        "cost_status": "complete" if cost_coverage >= 1 else "partial" if cost_coverage > 0 else "missing",
+        "gross_coverage_qty": round(gross_coverage, 6),
+        "gross_profit_status": "complete" if gross_coverage >= 1 else "partial" if gross_coverage > 0 else "missing",
+        "details": simulated_details,
     }
 
 
 def optimize_row(
     *,
     baseline_qty: float,
-    plan_price: Optional[float],
+    baseline_price: Optional[float],
     target_qty: float,
     ed: float,
+    target_revenue: Optional[float] = None,
     candidate_ids: Optional[List[str]] = None,
     param: Optional[str] = None,
     traffic_tier: Optional[str] = None,
+    details: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
-    """单 SKU optimize：候选中逐条 simulate → argmin|销量-目标| → 最优策略 + 对应销量。"""
+    """单 SKU optimize：候选中逐条 simulate，按销量/销售额目标选择最优策略。
+
+    没有传入销售额目标时保留原来的销量目标逻辑。两个目标同时存在时，
+    使用各自相对目标的归一化差距相加，避免销量和金额的量纲直接相加。
+    """
     candidates = [s for s in STRATEGY_CATALOG if candidate_ids is None or s["id"] in candidate_ids]
     best = None
-    best_gap = float("inf")
+    best_score = float("inf")
     for strat in candidates:
         res = simulate_row(
             baseline_qty=baseline_qty,
-            plan_price=plan_price,
+            baseline_price=baseline_price,
             strategy_id=strat["id"],
             param=param if strat["param_kind"] != "none" else "",
             ed=ed,
             traffic_tier=traffic_tier,
+            details=details,
         )
-        gap = abs(res["sim_qty"] - float(target_qty))
-        if gap < best_gap:
-            best_gap = gap
-            best = {"strategy_id": strat["id"], "strategy_name": strat["name"], **res, "gap": round(gap, 2)}
+        qty_gap = abs(res["sim_qty"] - float(target_qty))
+        raw_sim_amount = res.get("sim_amount")
+        sim_amount = float(raw_sim_amount) if raw_sim_amount is not None else None
+        amount_gap = None
+        if target_revenue is None or sim_amount is None:
+            score = qty_gap
+        else:
+            amount_gap = abs(sim_amount - float(target_revenue))
+            qty_scale = max(abs(float(target_qty)), 1.0)
+            amount_scale = max(abs(float(target_revenue)), 1.0)
+            score = qty_gap / qty_scale + amount_gap / amount_scale
+        if score < best_score:
+            best_score = score
+            best = {
+                "strategy_id": strat["id"],
+                "strategy_name": strat["name"],
+                **res,
+                "sim_amount": round(sim_amount, 2) if sim_amount is not None else None,
+                "gap": round(qty_gap, 2),
+                "amount_gap": round(amount_gap, 2) if amount_gap is not None else None,
+                "score": round(score, 6),
+            }
     return best or {}
 
 
 def search_optimize(
     *,
     baseline_qty: float,
-    plan_price: Optional[float],
+    baseline_price: Optional[float],
     target_qty: float,
     ed: float,
+    target_revenue: Optional[float] = None,
     status: Optional[str] = None,
     param: Optional[str] = None,
     traffic_tier: Optional[str] = None,
+    details: Optional[List[Dict[str, Any]]] = None,
 ) -> Dict[str, Any]:
     """优化搜索入口：候选空间 = STRATEGY_CATALOG（按 statuses 过滤，§3.5）。"""
     if status is None or status == "":
@@ -329,10 +533,12 @@ def search_optimize(
         candidate_ids = [s["id"] for s in list_strategies(status=status)]
     return optimize_row(
         baseline_qty=baseline_qty,
-        plan_price=plan_price,
+        baseline_price=baseline_price,
         target_qty=target_qty,
+        target_revenue=target_revenue,
         ed=ed,
         candidate_ids=candidate_ids,
         param=param,
         traffic_tier=traffic_tier,
+        details=details,
     )

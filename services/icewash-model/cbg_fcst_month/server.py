@@ -135,34 +135,64 @@ class CategoryBatchMappingDTO(BaseModel):
     productBatchNumber: str = Field(..., description="产品数据批次号")
 
 
+class ForecastDetail(BaseModel):
+    """Forecast detail consumed by What-if.
+
+    ``baseline_price`` is the effective price resolved by the backend from a
+    plan price or an explicit historical fallback. The model does not predict
+    price and therefore does not accept a ``forecast_price`` field.
+    """
+
+    version: Optional[str] = None
+    month: Optional[str] = None
+    period: Optional[str] = None
+    forecast_period: Optional[str] = None
+    sku: str
+    channel: Optional[str] = None
+    channel_l3: Optional[str] = None
+    category: Optional[str] = None
+    forecast_qty: float
+    baseline_price: Optional[float] = None
+    cost_price: Optional[float] = None
+    baseline_qty: Optional[float] = None
+    elasticity_coef: Optional[float] = None
+    elasticity_class: Optional[str] = None
+
+
 class SimulateRow(BaseModel):
     """per-SKU 基线行（simulate/optimize 传入）。"""
     sku: str = Field(..., description="型号")
-    channel_l3: str = Field("", description="3级渠道")
+    # SKU rows aggregate multiple channel details; in that case there is no
+    # single channel value and the backend/frontend contract sends null.
+    channel_l3: Optional[str] = Field("", description="3级渠道（多渠道汇总时可为空）")
     category: Optional[str] = Field(None, description="品类")
+    series: Optional[str] = Field(None, description="产品系列")
     status: Optional[str] = Field(None, description="状态（淘汰/新品/主销…）")
     baseline_qty: float = Field(..., description="最终预测值基线")
-    plan_price: Optional[float] = Field(None, description="计划价")
+    baseline_price: Optional[float] = Field(None, description="What-if 基线价格")
     elasticity_coef: Optional[float] = Field(None, description="价格弹性系数（缺省走类别 fallback）")
     elasticity_class: Optional[str] = Field(None, description="弹性类别")
     strategy_id: Optional[str] = Field(None, description="行级策略，缺省使用请求级策略")
     param: Optional[str] = Field(None, description="行级策略参数，缺省使用请求级参数")
     traffic_tier: Optional[str] = Field(None, description="行级投流档位")
     target_qty: Optional[float] = Field(None, ge=0, description="行级优化目标销量")
+    target_revenue: Optional[float] = Field(None, ge=0, description="行级优化目标销售额（元）")
+    details: List[ForecastDetail] = Field(default_factory=list, description="型号的月份/渠道预测明细")
 
 
 class SimulateRequest(BaseModel):
     strategy_id: str = Field(..., description="策略 id（见 /whatif/strategies）")
     param: Optional[str] = Field(None, description="策略参数，如 '-8%' / '+12%'")
     traffic_tier: Optional[str] = Field(None, description="投流档位 conservative|medium|aggressive")
-    rows: List[SimulateRow] = Field(..., description="per-SKU 基线行列表")
+    rows: List[SimulateRow] = Field(..., min_length=1, description="per-SKU 基线行列表")
 
 
 class OptimizeRequest(BaseModel):
-    target_qty: float = Field(..., description="目标销量")
+    target_qty: Optional[float] = Field(None, description="目标销量；缺省时按每行基线销量")
+    target_revenue: Optional[float] = Field(None, ge=0, description="目标销售额（元）")
     param: Optional[str] = Field(None, description="策略参数（候选按 statuses 过滤）")
     traffic_tier: Optional[str] = Field(None, description="投流档位")
-    rows: List[SimulateRow] = Field(..., description="per-SKU 基线行列表")
+    rows: List[SimulateRow] = Field(..., min_length=1, description="per-SKU 基线行列表")
 
 # 定义请求体模型
 class PredictionRequest(BaseModel):
@@ -173,6 +203,12 @@ class PredictionRequest(BaseModel):
 
     customCallbackUrl: Optional[str] = Field(None, description="自定义回调URL，覆盖默认配置；本地可传 null")
     forecastMonth: Optional[str] = Field(None, description="预测月份，可选")
+    forecastHorizon: Optional[int] = Field(
+        None,
+        ge=1,
+        le=12,
+        description="需要计算的未来月份数；缺省使用模型默认值",
+    )
     # 与 main.py 一致：允许 null；null/False 均不写测试表
     saveTestData: Optional[bool] = Field(default=False, description="是否保存用于测试的结果数据，可传 null")
 
@@ -332,6 +368,7 @@ async def execute_prediction_task(task_id: str, request_data: dict, log_path: st
                     request_data["saveTestData"],
                     request_data["categoryBatchMappingDTOList"],
                     progress_callback=on_progress,
+                    forecast_horizon=request_data.get("forecastHorizon"),
                 )
             finally:
                 log_session.unbind_prints()
@@ -693,20 +730,23 @@ def _simulate_rows(req: SimulateRequest) -> List[Dict[str, Any]]:
         traffic_tier = row.traffic_tier or req.traffic_tier
         res = whatif_engine.simulate_row(
             baseline_qty=row.baseline_qty,
-            plan_price=row.plan_price,
+            baseline_price=row.baseline_price,
             strategy_id=strategy_id,
             param=param,
             ed=ed,
             traffic_tier=traffic_tier,
+            details=[detail.model_dump() for detail in row.details],
         )
         results.append({
             "sku": row.sku,
             "channel_l3": row.channel_l3,
             "category": row.category,
+            "series": row.series,
             "strategy_id": strategy_id,
             "param": param,
             "traffic_tier": traffic_tier,
             "baseline_qty": row.baseline_qty,
+            "baseline_price": row.baseline_price,
             **res,
         })
     return results
@@ -755,7 +795,7 @@ async def simulate(request: SimulateRequest, background_tasks: BackgroundTasks):
 
 @app.post("/optimize")
 async def optimize(request: OptimizeRequest, background_tasks: BackgroundTasks):
-    """规则式 optimize：逐 SKU 候选 argmin|销量-目标| → 最优策略 + 对应销量。"""
+    """规则式 optimize：逐 SKU 按销量和可选销售额目标搜索最优策略。"""
     task_id = str(uuid.uuid4())
     created_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     with task_store_lock:
@@ -772,28 +812,58 @@ async def optimize(request: OptimizeRequest, background_tasks: BackgroundTasks):
     def run_optimize() -> None:
         try:
             append_task_progress(task_id, "候选中逐条 simulate 搜索最优策略")
+            target_revenue_by_row = [row.target_revenue for row in request.rows]
+            if request.target_revenue is not None:
+                explicit_total = sum(value for value in target_revenue_by_row if value is not None)
+                remaining_target = max(float(request.target_revenue) - explicit_total, 0.0)
+                missing_indexes = [index for index, value in enumerate(target_revenue_by_row) if value is None]
+                if missing_indexes:
+                    amount_weights = [
+                        max(float(request.rows[index].baseline_qty), 0.0)
+                        * max(float(request.rows[index].baseline_price), 0.0)
+                        if request.rows[index].baseline_price is not None
+                        else 0.0
+                        for index in missing_indexes
+                    ]
+                    weight_total = sum(amount_weights)
+                    if weight_total <= 0:
+                        amount_weights = [max(float(request.rows[index].baseline_qty), 0.0) for index in missing_indexes]
+                        weight_total = sum(amount_weights)
+                    if weight_total <= 0:
+                        amount_weights = [1.0 for _ in missing_indexes]
+                        weight_total = float(len(missing_indexes))
+                    for index, weight in zip(missing_indexes, amount_weights):
+                        target_revenue_by_row[index] = remaining_target * weight / weight_total
             per_sku = []
-            for row in request.rows:
+            for index, row in enumerate(request.rows):
                 ed = whatif_engine.resolve_ed(row.elasticity_coef, row.elasticity_class)
                 target_qty = row.target_qty if row.target_qty is not None else request.target_qty
+                if target_qty is None:
+                    target_qty = row.baseline_qty
+                target_revenue = target_revenue_by_row[index]
                 best = whatif_engine.search_optimize(
                     baseline_qty=row.baseline_qty,
-                    plan_price=row.plan_price,
+                    baseline_price=row.baseline_price,
                     target_qty=target_qty,
+                    target_revenue=target_revenue,
                     ed=ed,
                     status=row.status,
                     param=row.param if row.param is not None else request.param,
                     traffic_tier=row.traffic_tier or request.traffic_tier,
+                    details=[detail.model_dump() for detail in row.details],
                 )
                 per_sku.append({
                     "sku": row.sku,
                     "channel_l3": row.channel_l3,
                     "category": row.category,
+                    "series": row.series,
                     "status": row.status,
                     "target_qty": target_qty,
+                    "target_revenue": target_revenue,
                     "param": row.param if row.param is not None else request.param,
                     "traffic_tier": row.traffic_tier or request.traffic_tier,
                     "baseline_qty": row.baseline_qty,
+                    "baseline_price": row.baseline_price,
                     **best,
                 })
             with task_store_lock:

@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -28,6 +29,7 @@ from app.engine.state import EngineState, MessageStatus
 from app.models import Message, Tool
 from app.sandbox import client as sandbox_client
 from app.sandbox.lifecycle import record_finish, record_start
+from app.services.chat_envelope import build_envelope
 from app.sse.events import EVT_FOLLOW_UP, SsePayload
 from app.sse.hub import Hub
 from app.tools.dashboard_spec import DASHBOARD_TOOL_NAMES as _DASHBOARD_TOOL_NAMES
@@ -72,14 +74,22 @@ class RunContext:
     # provider for this execution.
     oa: str | None = None
     oauth_access_token: str | None = None
+    user_prompt: str = ""
 
 
 def _make_tool_message(tool_name: str, call_id: str, result: dict[str, Any]) -> dict[str, Any]:
     """工具结果回灌 message（OpenAI tool role 格式）。"""
+    replay_result = result
+    output = result.get("output") if isinstance(result, dict) else None
+    # Some capability tools keep a full workbench payload for trace/projection
+    # but expose a compact replay view to the next LLM round.  This prevents
+    # thousands of monthly detail rows from crowding out the final report.
+    if isinstance(output, dict) and isinstance(output.get("_llm_output"), dict):
+        replay_result = {**result, "output": output["_llm_output"]}
     content = {
         "tool_call_id": call_id,
         "tool_name": tool_name,
-        "result": result,
+        "result": replay_result,
     }
     return {
         "role": "tool",
@@ -104,6 +114,41 @@ async def _emit_agent_state(
 
 async def _emit_content_delta(ctx: RunContext, text: str) -> None:
     await ctx.hub.publish(ctx.conversation_id, "message.delta", {"text": text})
+
+
+_NEED_INPUT_LABELS = {
+    "category": "预测品类",
+    "forecast_month": "预测基准月",
+    "system_forecast_number": "预测版本号",
+    "strategy_id": "策略",
+    "target_qty": "目标销量",
+    "target_revenue": "目标销售额",
+}
+
+
+def _need_input_message(missing: list[str], tool_name: str = "") -> str:
+    """Turn an internal capability marker into a message a user can act on."""
+    names = [str(item) for item in missing if str(item)]
+    if "forecast_month" in names:
+        return "要开始预测，还缺少预测基准月。请补充 YYYY-MM，例如：以 2026-10 为基准预测未来 3 个月销量。"
+    labels = [_NEED_INPUT_LABELS.get(name, name) for name in names]
+    if labels:
+        return f"要调用 {tool_name or '数据能力'}，还需要补充：{'、'.join(labels)}。"
+    return "还缺少完成本次分析所需的输入，请补充后重试。"
+
+
+def _user_facing_final_text(text: str) -> str:
+    """Hide raw ``need_input(...)`` markers wherever an upstream model emits them."""
+    value = str(text or "").strip()
+    marker = re.compile(r"need_input\s*\(([^)]*)\)", flags=re.IGNORECASE)
+    if not marker.search(value):
+        return value
+
+    def replace(match: re.Match[str]) -> str:
+        missing = [item.strip() for item in match.group(1).split(",") if item.strip()]
+        return _need_input_message(missing)
+
+    return marker.sub(replace, value).strip()
 
 
 async def _execute_one_tool(
@@ -275,11 +320,33 @@ async def _execute_internal_tool(
         timeout_s = max(float(timeout_s), FORECAST_TOOL_TIMEOUT_S)
     started = time.monotonic()
     try:
+        internal_context: dict[str, Any] = {
+            "session": session,
+            "user_id": ctx.user_id,
+            "user_prompt": ctx.user_prompt,
+        }
+        if tool.name == "submit_forecast":
+            last_progress = ""
+
+            async def report_forecast_progress(task: Any) -> None:
+                nonlocal last_progress
+                if not isinstance(task, dict):
+                    return
+                detail = str(task.get("progress") or task.get("status") or "").strip()
+                if not detail or detail == last_progress:
+                    return
+                last_progress = detail
+                await _emit_agent_state(session, ctx, EngineState.EXECUTING, detail)
+
+            internal_context["progress_callback"] = report_forecast_progress
+            # Relative requests such as “未来 3 个月” mean the next natural
+            # month when the model omitted the optional base month.
+            internal_context["default_forecast_month"] = True
         output = await asyncio.wait_for(
             run_internal(
                 tool.name,
                 tctx.input_data,
-                context={"session": session, "user_id": ctx.user_id},
+                context=internal_context,
             ),
             timeout=timeout_s,
         )
@@ -387,6 +454,7 @@ async def build_messages_for(
 async def run_flow(rctx: RunContext, prompt: str, session_factory: async_sessionmaker[AsyncSession]) -> dict[str, Any]:
     """执行完整 Agent 循环。返回最终状态（engine 调用后由 chat_service 持久化消息）。"""
     ctx = rctx
+    ctx.user_prompt = prompt
     final_status = MessageStatus.COMPLETED
     final_text = ""
 
@@ -404,6 +472,14 @@ async def run_flow(rctx: RunContext, prompt: str, session_factory: async_session
                 prompt,
                 user_max_messages=int(user_max),
             )
+            # Scenario instructions are part of the model-visible context.
+            # Keep conversation history assembly generic, but prepend the
+            # persisted sales_query_predict workflow prompt here so the LLM
+            # can distinguish history from future forecast and attribution
+            # without introducing a second intent/planner layer.
+            system_prompt = str(getattr(ctx.scenario, "system_prompt", "") or "").strip()
+            if system_prompt:
+                msgs.insert(0, {"role": "system", "content": system_prompt})
             tools = [
                 {
                     "name": s["name"],
@@ -430,6 +506,7 @@ async def run_flow(rctx: RunContext, prompt: str, session_factory: async_session
             done_message_seq = 0
             final_usage: Optional[dict] = None  # T38：done 载荷可选的 usage
             result_envelope: dict[str, Any] | None = None
+            tool_outputs_for_envelope: list[dict[str, Any]] = []
             #: 工具连续失败熔断（同一轮内所有工具全失败达阈值 → 终止，防死循环）
             consecutive_tool_failures = 0
             MAX_CONSECUTIVE_TOOL_FAILURES = 2
@@ -527,15 +604,45 @@ async def run_flow(rctx: RunContext, prompt: str, session_factory: async_session
                 if stop_reason == "tool_use" and tool_calls:
                     await _emit_agent_state(session, ctx, EngineState.EXECUTING)
                     results = await _execute_tools_parallel(session, ctx, tool_calls, tools)
-                    for tool_result in results:
+                    need_input_request: tuple[list[str], str] | None = None
+                    for tool_call, tool_result in zip(tool_calls, results, strict=False):
                         candidate = tool_result.get("output") if isinstance(tool_result, dict) else None
-                        if isinstance(candidate, dict) and candidate.get("response_type") not in (None, "need_input"):
-                            result_envelope = candidate
+                        if (
+                            need_input_request is None
+                            and isinstance(candidate, dict)
+                            and candidate.get("response_type") == "need_input"
+                        ):
+                            missing = candidate.get("missing") or candidate.get("need_input") or []
+                            if isinstance(missing, str):
+                                missing = [missing]
+                            need_input_request = ([str(item) for item in missing], str(tool_call.name or ""))
+                        if (
+                            isinstance(candidate, dict)
+                            and tool_result.get("ok", False)
+                            and candidate.get("response_type") not in (None, "need_input", "tool_error")
+                            and candidate.get("status") != "failed"
+                        ):
+                            tool_outputs_for_envelope.append(
+                                {"name": tool_call.name, "status": "ok", "output": candidate}
+                            )
                     # 回灌
                     msgs.append({"role": "assistant", "content": "".join(text_buffer), "tool_calls": _tool_call_payloads(tool_calls)})
                     for i, (tc, res) in enumerate(zip(tool_calls, results, strict=False)):
                         msgs.append(_make_tool_message(tc.name, tc.id, res))
                     await session.commit()  # 工具结果落库
+
+                    if need_input_request is not None:
+                        missing, tool_name = need_input_request
+                        final_status = MessageStatus.COMPLETED
+                        final_text = _need_input_message(missing, tool_name)
+                        done_message_seq = await append_event(
+                            session,
+                            trace_id=ctx.trace_id,
+                            message_id=ctx.message_id,
+                            type=DONE,
+                            payload={"final_text": final_text, "status": "completed"},
+                        )
+                        break
 
                     # 工具连续失败熔断（§3.4：失败不中断会话，但需收敛防死循环）
                     failed = [r for r in results if not r.get("ok", False)]
@@ -564,9 +671,25 @@ async def run_flow(rctx: RunContext, prompt: str, session_factory: async_session
                     continue
 
                 # 正常结束
-                final_text = "".join(text_buffer) if text_buffer else (
-                    tool_calls and "已获取工具结果，请提出下一步问题。" or ""
+                final_text = _user_facing_final_text(
+                    "".join(text_buffer)
+                    if text_buffer
+                    else (tool_calls and "已获取工具结果，请提出下一步问题。" or "")
                 )
+                if not final_text.strip() and tool_outputs_for_envelope:
+                    # A provider may stop with an empty content block after a
+                    # large What-if tool result.  Reuse the deterministic
+                    # projection as the user-facing report so the chat bubble,
+                    # done event and persisted message are never blank.
+                    fallback_envelope = build_envelope(
+                        "",
+                        tool_outputs_for_envelope,
+                        [],
+                        MessageStatus.COMPLETED.value,
+                    )
+                    fallback_text = fallback_envelope.get("text") if isinstance(fallback_envelope, dict) else None
+                    if isinstance(fallback_text, dict) and isinstance(fallback_text.get("markdown"), str):
+                        final_text = fallback_text["markdown"]
                 final_usage = usage
                 done_message_seq = await append_event(
                     session,
@@ -582,8 +705,16 @@ async def run_flow(rctx: RunContext, prompt: str, session_factory: async_session
             if msg is not None:
                 msg.content = final_text
                 msg.status = final_status.value
-                if result_envelope is not None:
-                    msg.result_envelope = result_envelope
+                # Persist the same projection consumed by the chat façade.
+                # The event stream remains the audit source, while this JSONB
+                # snapshot is safe for history/session reads.
+                result_envelope = build_envelope(
+                    final_text,
+                    tool_outputs_for_envelope,
+                    [],
+                    final_status.value,
+                )
+                msg.result_envelope = result_envelope
             if final_status == MessageStatus.COMPLETED:
                 from app.services.memory import update_memory
 

@@ -26,7 +26,8 @@ function exportCsv(envelope: AgentResultEnvelope) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `forecast-${envelope.intent}.csv`;
+  const label = envelope.response_type || envelope.intent || "result";
+  a.download = `forecast-${label}.csv`;
   a.click();
   URL.revokeObjectURL(url);
 }

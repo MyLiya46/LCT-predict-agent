@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
-import type { EChartsOption, LineSeriesOption } from "echarts";
+import type { EChartsOption } from "echarts";
 import {
   ChartLine,
   CircleNotch,
@@ -18,7 +18,6 @@ import {
   fetchWhatIfBaseline,
   fetchWhatIfStrategies,
   fetchWhatIfTask,
-  fetchWorkbenchTable,
   submitWhatIfOptimization,
   submitWhatIfSimulation,
   type WhatIfBaselineItem,
@@ -34,6 +33,7 @@ import {
   type TrafficTierId,
   type WhatIfStrategyMeta,
 } from "../whatifSimulate";
+import { buildAttainmentTrendOption } from "../components/agent/StrategyDashboard";
 
 const RIGHT_PANEL_MIN = 280;
 const LEFT_PANEL_MIN = 420;
@@ -74,32 +74,11 @@ function formatPrice(p: number | null | undefined): string {
   return `¥${Math.round(p).toLocaleString()}`;
 }
 
-function formatAmount(amt: number): string {
-  if (!Number.isFinite(amt)) return "-";
+function formatAmount(amt: number | null | undefined): string {
+  if (amt == null || !Number.isFinite(amt)) return "-";
   if (Math.abs(amt) >= 1e8) return `${(amt / 1e8).toFixed(2)}亿`;
   if (Math.abs(amt) >= 1e4) return `${(amt / 1e4).toFixed(1)}万`;
   return `¥${Math.round(amt).toLocaleString()}`;
-}
-
-async function loadCostMap(category: string): Promise<Record<string, number>> {
-  const map: Record<string, number> = {};
-  let page = 1;
-  const pageSize = 200;
-  while (page <= 5) {
-    const res = await fetchWorkbenchTable("cost_data", {
-      category,
-      page,
-      page_size: pageSize,
-    });
-    for (const row of res.rows || []) {
-      const sku = String(row["型号"] || "").trim();
-      const cost = Number(row["成本价"]);
-      if (sku && Number.isFinite(cost)) map[sku] = cost;
-    }
-    if (!res.rows?.length || (res.page ?? page) * pageSize >= (res.total ?? 0)) break;
-    page += 1;
-  }
-  return map;
 }
 
 function formatMonthLabel(period: string): string {
@@ -109,6 +88,8 @@ function formatMonthLabel(period: string): string {
 }
 
 type SimRow = WhatIfBaselineItem & {
+  /** 永远保留原始基线明细，避免把上一次模拟结果再次作为基线提交。 */
+  baselineDetails?: WhatIfBaselineItem["details"];
   strategyOptions: WhatIfStrategyMeta[];
   strategy_id: string;
   sim_price: number | null;
@@ -117,11 +98,34 @@ type SimRow = WhatIfBaselineItem & {
 };
 
 function rowMetrics(r: SimRow) {
-  const simPrice = r.sim_price ?? r.plan_price ?? 0;
-  const qty = r.sim_qty || 0;
-  const cost = r.cost_price ?? 0;
-  const simAmount = simPrice * qty;
-  const grossProfit = (simPrice - cost) * qty;
+  const simPrice = r.sim_price ?? null;
+  const qty = Number(r.sim_qty || 0);
+  const simAmount = r.sim_amount !== undefined
+    ? r.sim_amount == null ? null : Number(r.sim_amount)
+    : simPrice == null
+      ? null
+      : simPrice * qty;
+  let grossProfit: number | null = null;
+
+  // Baseline gross profit is already calculated at detail level by the
+  // backend. It may be partial, but it never treats an unknown cost as zero.
+  const isBaseline =
+    Math.abs(qty - Number(r.baseline_qty || 0)) < 0.000001 &&
+    (r.sim_price ?? null) === (r.baseline_price ?? null);
+  if (!isBaseline && r.sim_gross_profit !== undefined) {
+    grossProfit = r.sim_gross_profit ?? null;
+  } else if (isBaseline && r.gross_profit_status && r.gross_profit_status !== "missing") {
+    grossProfit = r.gross_profit ?? null;
+  } else {
+    const costComplete =
+      r.cost_price != null &&
+      (r.cost_status === "complete" ||
+        (!r.cost_status && (r.cost_coverage_qty == null || r.cost_coverage_qty >= 1)));
+    if (costComplete && simPrice != null && r.cost_price != null) {
+      grossProfit = (simPrice - r.cost_price) * qty;
+    }
+  }
+
   return { simAmount, grossProfit };
 }
 
@@ -134,9 +138,19 @@ function seriesFromRows(
   if (!months.length) return [];
   const totals = new Map<string, number>();
   for (const row of rows) {
+    if (row.details?.length) {
+      for (const detail of row.details) {
+        const month = String(detail.month || detail.period || "");
+        if (!month) continue;
+        const detailValue = value === "sim_qty"
+          ? detail.sim_qty ?? detail.forecast_qty
+          : detail.baseline_qty ?? detail.forecast_qty;
+        totals.set(month, (totals.get(month) || 0) + Number(detailValue || 0));
+      }
+      continue;
+    }
     const month = String(row.period || "");
-    if (!month) continue;
-    totals.set(month, (totals.get(month) || 0) + Number(row[value] || 0));
+    if (month) totals.set(month, (totals.get(month) || 0) + Number(row[value] || 0));
   }
   if (totals.size) return months.map((month) => Number(((totals.get(month) || 0) / 10000).toFixed(2)));
   const base = rows.reduce((sum, row) => sum + Number(row.baseline_qty || 0), 0);
@@ -152,9 +166,13 @@ function toModelRow(row: SimRow, strategyId?: string, param?: string, tier?: Tra
     category: row.category,
     status: row.status,
     baseline_qty: row.baseline_qty,
-    plan_price: row.plan_price,
+    baseline_price: row.baseline_price,
+    cost_price: row.cost_price,
     elasticity_coef: row.elasticity?.coefficient ?? null,
     elasticity_class: row.elasticity?.elasticity_class ?? null,
+    // A completed simulation may contain simulated detail values. The next
+    // simulation must always start from the original forecast details.
+    details: row.baselineDetails ?? row.details,
     strategy_id: strategyId ?? row.strategy_id,
     param: param ?? null,
     traffic_tier: tier ?? null,
@@ -181,7 +199,13 @@ type KpiState = {
   vol: string;
   rev: string;
   margin: string;
+  marginStatus: "complete" | "partial" | "missing";
+  marginNote: string;
+  marginCoverage: string;
   turn: string;
+  turnDays: number | null;
+  turnStatus: string;
+  turnReason: string;
   volDiff: string;
   revDiff: string;
   volGap: string;
@@ -198,7 +222,13 @@ function emptyKpi(simSeries: number[] = []): KpiState {
     vol: "--",
     rev: "--",
     margin: "--",
-    turn: "45 天",
+    marginStatus: "missing",
+    marginNote: "- (基线)",
+    marginCoverage: "毛利覆盖: --",
+    turn: "45天（占位）",
+    turnDays: null,
+    turnStatus: "unavailable",
+    turnReason: "缺少未来期末/平均库存与 COGS 数据",
     volDiff: "- (基线)",
     revDiff: "- (基线)",
     volGap: "--",
@@ -220,23 +250,48 @@ function computeKpi(
     labelMode: "baseline" | "sim";
     simSeries: number[];
     baselineAmount: number;
+    inventoryTurnoverDays?: number | null;
+    inventoryTurnoverLabel?: string | null;
+    inventoryTurnoverStatus?: string;
+    inventoryTurnoverReason?: string | null;
   },
 ): KpiState {
   const vol = rows.reduce((s, r) => s + (r.sim_qty || 0), 0);
-  const rev = rows.reduce(
-    (s, r) => s + (r.sim_price ?? r.plan_price ?? 0) * (r.sim_qty || 0),
-    0,
+  const metrics = rows.map(rowMetrics);
+  const amountComplete = metrics.every((metric) => metric.simAmount != null);
+  const rev = amountComplete
+    ? metrics.reduce((s, metric) => s + (metric.simAmount ?? 0), 0)
+    : null;
+  const confirmedMetrics = metrics.filter(
+    (metric): metric is { simAmount: number; grossProfit: number } =>
+      metric.simAmount != null && metric.grossProfit != null,
   );
-  const profit = rows.reduce((s, r) => s + rowMetrics(r).grossProfit, 0);
+  const profit = confirmedMetrics.reduce((s, metric) => s + metric.grossProfit, 0);
   const volWan = vol / 10000;
-  const revM = rev / 1e6;
-  const marginPct = rev > 0 ? (profit / rev) * 100 : 0;
+  const revM = rev == null ? null : rev / 1e6;
+  const marginPct = revM != null && rev != null && rev > 0 && confirmedMetrics.length
+    ? (profit / rev) * 100
+    : null;
+  const allGrossComplete =
+    rows.length > 0 &&
+    rows.every((row) => row.gross_profit_status === "complete" || (!row.gross_profit_status && row.cost_price != null));
+  const marginStatus: KpiState["marginStatus"] =
+    confirmedMetrics.length === 0 ? "missing" : allGrossComplete ? "complete" : "partial";
+  const marginCoverageQty = rows.reduce((sum, row) => {
+    const coverage =
+      row.gross_coverage_qty ?? (row.gross_profit_status === "complete" ? 1 : 0);
+    return sum + Number(row.baseline_qty || 0) * Math.max(0, Math.min(1, coverage));
+  }, 0);
+  const totalBaselineQty = rows.reduce((sum, row) => sum + Number(row.baseline_qty || 0), 0);
+  const marginCoverage = totalBaselineQty > 0
+    ? `毛利覆盖: ${(marginCoverageQty / totalBaselineQty * 100).toFixed(1)}%`
+    : "毛利覆盖: --";
   const goalVolN = Number(goalVol) || 0;
   const goalRevN = Number(goalRev) || 0;
   const volGap = Math.max(0, goalVolN - volWan);
-  const revGap = Math.max(0, goalRevN - revM);
-  const progress = goalRevN > 0 ? (revM / goalRevN) * 100 : 0;
-  const ok = progress >= 100 && volWan >= goalVolN;
+  const revGap = revM == null ? null : Math.max(0, goalRevN - revM);
+  const progress = revM == null ? null : goalRevN > 0 ? (revM / goalRevN) * 100 : 0;
+  const ok = progress != null && progress >= 100 && volWan >= goalVolN;
   const success =
     opts.success !== null
       ? opts.success
@@ -244,11 +299,23 @@ function computeKpi(
         ? null
         : ok;
 
+  const turnoverDays = opts.inventoryTurnoverDays ?? null;
+  const turnoverLabel =
+    turnoverDays != null && Number.isFinite(turnoverDays)
+      ? `${turnoverDays.toFixed(1)}天`
+      : opts.inventoryTurnoverLabel || "45天（占位）";
+
   return {
     vol: volWan.toFixed(1),
-    rev: revM.toFixed(1),
-    margin: `${marginPct.toFixed(1)}%`,
-    turn: "45 天",
+    rev: revM == null ? "暂无数据" : revM.toFixed(1),
+    margin: marginPct == null ? "暂无数据" : `${marginPct.toFixed(1)}%`,
+    marginStatus,
+    marginNote: marginStatus === "complete" ? "- (基线)" : marginStatus === "partial" ? "部分数据" : "暂无数据",
+    marginCoverage,
+    turn: turnoverLabel,
+    turnDays: turnoverDays,
+    turnStatus: opts.inventoryTurnoverStatus || (turnoverDays == null ? "unavailable" : "available"),
+    turnReason: opts.inventoryTurnoverReason || (turnoverDays == null ? "缺少未来期末/平均库存与 COGS 数据" : ""),
     volDiff:
       opts.labelMode === "baseline"
         ? "- (基线)"
@@ -260,15 +327,19 @@ function computeKpi(
     revDiff:
       opts.labelMode === "baseline"
         ? "- (基线)"
-        : ok
+          : revM == null
+            ? "暂无数据"
+            : ok
           ? "达标"
-          : revGap < 1
+          : revGap != null && revGap < 1
             ? "略低于目标"
             : "未达标",
     volGap: volGap.toFixed(1),
-    revGap: revGap.toFixed(1),
-    progress: `${progress.toFixed(1)}%`,
-    progressLabel: `${progress.toFixed(1)}% (${ok ? "已达标" : "未达标"})`,
+    revGap: revGap == null ? "--" : revGap.toFixed(1),
+    progress: progress == null ? "暂无数据" : `${progress.toFixed(1)}%`,
+    progressLabel: progress == null
+      ? "暂无数据"
+      : `${progress.toFixed(1)}% (${ok ? "已达标" : "未达标"})`,
     success,
     baselineRevM: (opts.baselineAmount / 1e6).toFixed(1),
     simSeries: opts.simSeries,
@@ -299,6 +370,7 @@ export default function WhatIfPage() {
   const [loadingBaseline, setLoadingBaseline] = useState(false);
   const [simulationReady, setSimulationReady] = useState(false);
   const [agentReady, setAgentReady] = useState(false);
+  const [simulationDirty, setSimulationDirty] = useState(false);
 
   const [categories, setCategories] = useState<string[]>([]);
   const [allVersions, setAllVersions] = useState<string[]>([]);
@@ -403,9 +475,12 @@ export default function WhatIfPage() {
       months: string[];
       qty_series: number[];
       amount_series?: number[];
+      inventory_turnover_days?: number | null;
+      inventory_turnover_label?: string | null;
+      inventory_turnover_status?: string;
+      inventory_turnover_reason?: string | null;
     },
     period: string | null,
-    costMap: Record<string, number>,
     catalog: WhatIfStrategy[],
     goals?: { vol: string; rev: string },
     elasticityHits?: number,
@@ -415,9 +490,12 @@ export default function WhatIfPage() {
       const sid = defaultStrategyId(it.status);
       return {
         ...it,
+        baselineDetails: it.details,
         sim_qty: it.baseline_qty,
-        sim_price: it.plan_price,
-        cost_price: costMap[it.sku] ?? null,
+        sim_price: it.baseline_price ?? null,
+        sim_amount: undefined,
+        sim_gross_profit: undefined,
+        cost_price: it.cost_price ?? null,
         strategyOptions: opts,
         strategy_id: sid,
         traffic_tier: null,
@@ -440,12 +518,17 @@ export default function WhatIfPage() {
     setBaselinePeriod(period || months[0] || "");
     setSimulationReady(false);
     setAgentReady(false);
+    setSimulationDirty(false);
     setKpi(
       computeKpi(nextRows, useVol, useRev, {
         success: null,
         labelMode: "baseline",
         simSeries: qtySeries,
         baselineAmount: summary.baseline_amount || 0,
+        inventoryTurnoverDays: summary.inventory_turnover_days,
+        inventoryTurnoverLabel: summary.inventory_turnover_label,
+        inventoryTurnoverStatus: summary.inventory_turnover_status,
+        inventoryTurnoverReason: summary.inventory_turnover_reason,
       }),
     );
     return elasticityHits ?? 0;
@@ -456,6 +539,7 @@ export default function WhatIfPage() {
     setLoadingBaseline(true);
     setSimulationReady(false);
     setAgentReady(false);
+    setSimulationDirty(false);
     try {
       let catalog = strategyCatalog;
       if (!catalog.length) {
@@ -463,10 +547,7 @@ export default function WhatIfPage() {
         catalog = strat.strategies || [];
         setStrategyCatalog(catalog);
       }
-      const [res, costMap] = await Promise.all([
-        fetchWhatIfBaseline({ category, version, limit: 200 }),
-        loadCostMap(category),
-      ]);
+      const res = await fetchWhatIfBaseline({ category, version, limit: 200 });
       if (runId !== workflowRunRef.current) return;
       if (!res.ok) {
         setLogs((prev) => [
@@ -479,20 +560,22 @@ export default function WhatIfPage() {
         res.items || [],
         res.summary,
         res.period,
-        costMap,
         catalog,
         undefined,
         res.elasticity_hits,
       );
       const qtyWan = ((res.summary?.baseline_qty || 0) / 10000).toFixed(1);
       const revM = ((res.summary?.baseline_amount || 0) / 1e6).toFixed(1);
-      const costHits = (res.items || []).filter((it) => costMap[it.sku]).length;
+      const costHits = (res.items || []).filter((it) => it.cost_status === "complete").length;
+      const priceCoverage = Number(res.summary?.price_coverage_qty || 0) * 100;
+      const costCoverage = Number(res.summary?.cost_coverage_qty || 0) * 100;
       const elastHits = res.elasticity_hits ?? 0;
       setLogs((prev) => [
         ...prev,
         `> 已加载基础预测: ${category} / ${version}（${res.period || "-"}）`,
         `> 按型号汇总多渠道预测：${res.total} 个型号，基线销量 ${qtyWan} 万件，销售额 ${revM} 百万元（价格×销量）`,
-        `> 已匹配商品成本 ${costHits}/${res.total} 个型号；价格弹性表命中 ${elastHits}/${res.total}`,
+        `> 价格覆盖 ${priceCoverage.toFixed(1)}%；成本覆盖 ${costCoverage.toFixed(1)}%（完整成本型号 ${costHits}/${res.total}）；价格弹性表命中 ${elastHits}/${res.total}`,
+        `> 库存周转：${res.summary?.inventory_turnover_label || "45天（占位）"}（${res.summary?.inventory_turnover_reason || "缺少未来库存与 COGS 数据"}）`,
         `> 已加载策略目录 ${catalog.length} 条（知识库标准化）`,
       ]);
     } catch (e) {
@@ -515,72 +598,37 @@ export default function WhatIfPage() {
   };
 
   const chartOption = useMemo<EChartsOption>(() => {
-    const labels = chartMonths.length
-      ? chartMonths.map(formatMonthLabel)
-      : ["--"];
-    const base = baselineSeries.length ? baselineSeries : [0];
-    const sim = kpi.simSeries.length ? kpi.simSeries : base;
-    const goalN = Number(goalVol) || 0;
-    const goalLine = labels.map(() => goalN);
-    const series: LineSeriesOption[] = [
-      {
-        name: "基线预测",
-        type: "line",
-        data: base,
-        smooth: 0.3,
-        symbol: "circle",
-        symbolSize: 4,
-        lineStyle: { color: "#9ca3af", type: "dashed", width: 2 },
-        itemStyle: { color: "#9ca3af" },
-      },
-    ];
-    if (simulationReady || agentReady) {
-      series.push({
-        name: "当前模拟结果",
-        type: "line",
-        data: sim,
-        smooth: 0.3,
-        symbol: "circle",
-        symbolSize: 4,
-        lineStyle: { color: "#2563eb", width: 2 },
-        itemStyle: { color: "#2563eb" },
-        areaStyle: { color: "rgba(37, 99, 235, 0.1)" },
+    const labels = chartMonths.length ? chartMonths.map(formatMonthLabel) : ["--"];
+    const length = labels.length;
+    const cumulative = (values: number[]): (number | null)[] => {
+      if (!values.length) return Array.from({ length }, () => null);
+      let total = 0;
+      return labels.map((_, index) => {
+        const value = values[index];
+        if (value == null || !Number.isFinite(value)) return null;
+        total += value;
+        return Number(total.toFixed(2));
       });
-    }
-    if (agentReady && goalN > 0) {
-      series.push({
-        name: "设定目标",
-        type: "line",
-        data: goalLine,
-        smooth: false,
-        symbol: "none",
-        lineStyle: { color: "#10b981", width: 2, type: "dotted" },
-        itemStyle: { color: "#10b981" },
-      });
-    }
-    return {
-      tooltip: { trigger: "axis" },
-      legend: {
-        top: 0,
-        textStyle: { fontSize: 10 },
-        itemWidth: 10,
-        itemHeight: 8,
-      },
-      grid: { left: 36, right: 16, top: 36, bottom: 28 },
-      xAxis: {
-        type: "category",
-        data: labels,
-        axisLabel: { fontSize: 10, color: "#64748b" },
-      },
-      yAxis: {
-        type: "value",
-        name: "万件",
-        nameTextStyle: { fontSize: 10, color: "#94a3b8" },
-        splitLine: { lineStyle: { color: "#f1f5f9" } },
-        axisLabel: { fontSize: 10, color: "#64748b" },
-      },
-      series,
     };
+    const base = cumulative(baselineSeries);
+    const sim = cumulative(kpi.simSeries.length ? kpi.simSeries : baselineSeries);
+    const goalN = Number(goalVol);
+    const goalLine = Number.isFinite(goalN) && goalN > 0
+      ? labels.map((_, index) => Number((goalN * ((index + 1) / labels.length)).toFixed(2)))
+      : Array.from({ length }, () => null);
+    return buildAttainmentTrendOption({
+      months: labels,
+      cumulative: true,
+      baseline: { qty: base, amount: Array.from({ length }, () => null) },
+      simulated: {
+        qty: simulationReady || agentReady ? sim : Array.from({ length }, () => null),
+        amount: Array.from({ length }, () => null),
+      },
+      target: {
+        qty: agentReady ? goalLine : Array.from({ length }, () => null),
+        amount: Array.from({ length }, () => null),
+      },
+    });
   }, [agentReady, baselineSeries, chartMonths, goalVol, kpi.simSeries, simulationReady]);
 
   const progressPct = parseFloat(kpi.progress) || 0;
@@ -594,24 +642,10 @@ export default function WhatIfPage() {
 
   const appendLog = (line: string) => setLogs((prev) => [...prev, line]);
 
-  const resetComputedScenario = (nextRows: SimRow[] = rows) => {
-    const baselineRows = nextRows.map((row) => ({
-      ...row,
-      sim_qty: row.baseline_qty,
-      sim_price: row.plan_price,
-    }));
-    setRows(baselineRows);
-    setSimulationReady(false);
-    setAgentReady(false);
-    setAiRecs(baselineRows.map(() => ""));
-    setKpi(
-      computeKpi(baselineRows, goalVol, goalRev, {
-        success: null,
-        labelMode: "baseline",
-        simSeries: baselineSeries,
-        baselineAmount,
-      }),
-    );
+  const markScenarioDirty = () => {
+    // Keep the last completed result visible while the user edits the
+    // execution strategy. The next sandbox run will replace it atomically.
+    setSimulationDirty(true);
   };
 
   const runAgent = async () => {
@@ -631,11 +665,33 @@ export default function WhatIfPage() {
     const baselineTotal = rows.reduce((sum, row) => sum + row.baseline_qty, 0);
     try {
       if (baselineTotal <= 0) throw new Error("基线销量为 0，无法分配优化目标");
-      const modelRows = rows.map((row) => ({
+      const goalRevN = Number(goalRev);
+      const targetRevenue = Number.isFinite(goalRevN) && goalRevN > 0 ? goalRevN * 1e6 : undefined;
+      const revenueWeights = rows.map((row) => {
+        const qty = Math.max(0, Number(row.baseline_qty || 0));
+        const price = row.baseline_price;
+        return price != null && Number.isFinite(price)
+          ? qty * Math.max(0, price)
+          : qty;
+      });
+      const revenueWeightTotal = revenueWeights.reduce(
+        (sum, weight) => sum + weight,
+        0,
+      );
+      const modelRows = rows.map((row, index) => ({
         ...toModelRow(row, "maintain", undefined, null),
         target_qty: row.baseline_qty * goalVolN * 10000 / baselineTotal,
+        ...(targetRevenue != null
+          ? {
+              target_revenue:
+                targetRevenue
+                * (revenueWeightTotal > 0
+                  ? revenueWeights[index] / revenueWeightTotal
+                  : Math.max(0, Number(row.baseline_qty || 0)) / baselineTotal),
+            }
+          : {}),
       }));
-      const submitted = await submitWhatIfOptimization(goalVolN * 10000, modelRows);
+      const submitted = await submitWhatIfOptimization(goalVolN * 10000, targetRevenue, modelRows);
       appendLog(`> 优化任务已提交：${submitted.task_id}`);
       let lastProgress = "";
       const resultRows = await pollWhatIfTask(submitted.task_id, (message) => {
@@ -670,7 +726,19 @@ export default function WhatIfPage() {
           strategy_id: sid,
           traffic_tier: tier,
           sim_qty: Number(result.sim_qty ?? row.baseline_qty),
-          sim_price: Number(result.sim_price ?? row.plan_price ?? 0),
+          sim_price: result.sim_price == null ? null : Number(result.sim_price),
+          sim_amount: result.sim_amount ?? null,
+          sim_gross_profit: result.sim_gross_profit ?? null,
+          price_coverage_qty: result.price_coverage_qty ?? row.price_coverage_qty,
+          price_status: result.price_status ?? row.price_status,
+          cost_coverage_qty: result.cost_coverage_qty ?? row.cost_coverage_qty,
+          cost_status: result.cost_status ?? row.cost_status,
+          gross_coverage_qty: result.gross_coverage_qty ?? row.gross_coverage_qty,
+          gross_profit_status: result.gross_profit_status ?? row.gross_profit_status,
+          // Do not fall back to the previous simulation's details. If the
+          // model only returns an aggregate row, seriesFromRows will use the
+          // returned sim_qty and scale the baseline monthly series instead.
+          details: Array.isArray(result.details) ? result.details : undefined,
         };
       });
       const simSeries = seriesFromRows(nextRows, chartMonths, "sim_qty", baselineSeries);
@@ -684,9 +752,14 @@ export default function WhatIfPage() {
         labelMode: "sim",
         simSeries,
         baselineAmount,
+        inventoryTurnoverDays: kpi.turnDays,
+        inventoryTurnoverLabel: kpi.turn,
+        inventoryTurnoverStatus: kpi.turnStatus,
+        inventoryTurnoverReason: kpi.turnReason,
       }));
       setSimulationReady(true);
       setAgentReady(true);
+      setSimulationDirty(false);
       appendLog("> Agent 优化完成：模型已逐行枚举候选策略并返回最接近目标的结果。");
       setAgentDoneFlash(true);
       window.setTimeout(() => setAgentDoneFlash(false), 2000);
@@ -735,19 +808,33 @@ export default function WhatIfPage() {
           strategy_id: result.strategy_id || strategyIds[index] || row.strategy_id,
           traffic_tier: (result.traffic_tier || trafficTiers[index] || null) as TrafficTierId | null,
           sim_qty: Number(result.sim_qty ?? row.baseline_qty),
-          sim_price: Number(result.sim_price ?? row.plan_price ?? 0),
+          sim_price: result.sim_price == null ? null : Number(result.sim_price),
+          sim_amount: result.sim_amount ?? null,
+          sim_gross_profit: result.sim_gross_profit ?? null,
+          price_coverage_qty: result.price_coverage_qty ?? row.price_coverage_qty,
+          price_status: result.price_status ?? row.price_status,
+          cost_coverage_qty: result.cost_coverage_qty ?? row.cost_coverage_qty,
+          cost_status: result.cost_status ?? row.cost_status,
+          gross_coverage_qty: result.gross_coverage_qty ?? row.gross_coverage_qty,
+          gross_profit_status: result.gross_profit_status ?? row.gross_profit_status,
+          // Do not retain stale simulated details when the model returns only
+          // aggregate values; the chart must use this run's sim_qty instead.
+          details: Array.isArray(result.details) ? result.details : undefined,
         };
       });
       const simSeries = seriesFromRows(nextRows, chartMonths, "sim_qty", baselineSeries);
       setRows(nextRows);
-      setAiRecs(nextRows.map(() => ""));
-      setAgentReady(false);
       setSimulationReady(true);
+      setSimulationDirty(false);
       const nextKpi = computeKpi(nextRows, goalVol, goalRev, {
         success: null,
         labelMode: "sim",
         simSeries,
         baselineAmount,
+        inventoryTurnoverDays: kpi.turnDays,
+        inventoryTurnoverLabel: kpi.turn,
+        inventoryTurnoverStatus: kpi.turnStatus,
+        inventoryTurnoverReason: kpi.turnReason,
       });
       setKpi(nextKpi);
       appendLog(`> 模拟预测完成：销售额 ${nextKpi.rev}M，综合毛利率 ${nextKpi.margin}%。`);
@@ -779,11 +866,7 @@ export default function WhatIfPage() {
     }
     setParams(nextParams);
     setTrafficTiers(nextTiers);
-    resetComputedScenario(
-      rows.map((row, idx) =>
-        idx === i ? { ...row, strategy_id: sid, traffic_tier: nextTiers[i] } : row,
-      ),
-    );
+    markScenarioDirty();
   };
 
   const onTrafficTierChange = (i: number, tier: TrafficTierId) => {
@@ -794,16 +877,14 @@ export default function WhatIfPage() {
     const nextParams = [...params];
     nextParams[i] = param;
     setParams(nextParams);
-    resetComputedScenario(
-      rows.map((row, idx) => (idx === i ? { ...row, traffic_tier: tier } : row)),
-    );
+    markScenarioDirty();
   };
 
   const onParamChange = (i: number, param: string) => {
     const nextParams = [...params];
     nextParams[i] = param;
     setParams(nextParams);
-    resetComputedScenario();
+    markScenarioDirty();
   };
 
   return (
@@ -932,8 +1013,15 @@ export default function WhatIfPage() {
               ? "模拟计算中..."
               : simDoneFlash
                 ? "模拟完成"
-                : "运行沙盘模拟预估"}
+                : simulationDirty
+                  ? "更新沙盘模拟"
+                  : "运行沙盘模拟预估"}
           </button>
+          {simulationDirty ? (
+            <span className="text-xs font-medium text-amber-600">
+              策略已调整，点击沙盘模拟更新曲线
+            </span>
+          ) : null}
         </div>
       </section>
 
@@ -997,17 +1085,33 @@ export default function WhatIfPage() {
             <div className="mb-1 text-xs font-semibold text-gray-500">综合毛利率</div>
             <div className="flex items-end justify-between">
               <div className="text-2xl font-bold text-gray-800">{kpi.margin}</div>
-              <div className="text-sm font-medium text-gray-400">- (基线)</div>
+              <div
+                className={`text-sm font-medium ${
+                  kpi.marginStatus === "complete"
+                    ? "text-gray-400"
+                    : kpi.marginStatus === "partial"
+                      ? "text-amber-600"
+                      : "text-gray-400"
+                }`}
+              >
+                {kpi.marginNote}
+              </div>
             </div>
-            <div className="mt-1 text-xs text-gray-400">安全底线: 22.0%</div>
+            <div className="mt-1 text-xs text-gray-400">
+              安全底线: 22.0% · {kpi.marginCoverage}
+            </div>
           </div>
           <div className="rounded-lg border-l-4 border-gray-300 bg-white p-3 shadow">
             <div className="mb-1 text-xs font-semibold text-gray-500">库存周转天数</div>
             <div className="flex items-end justify-between">
               <div className="text-2xl font-bold text-gray-800">{kpi.turn}</div>
-              <div className="text-sm font-medium text-gray-400">- (基线)</div>
+              <div className="text-sm font-medium text-gray-400">
+                {kpi.turnStatus === "unavailable" ? "数据不可用" : "- (基线)"}
+              </div>
             </div>
-            <div className="mt-1 text-xs text-gray-400">目标: &lt; 40天</div>
+            <div className="mt-1 text-xs text-gray-400">
+              {kpi.turnStatus === "unavailable" ? kpi.turnReason : "目标: &lt; 40天"}
+            </div>
           </div>
         </section>
 
@@ -1021,7 +1125,7 @@ export default function WhatIfPage() {
                 <span>🎚️</span> 商品经营策略矩阵
               </h2>
               <span className="flex items-center gap-1 text-xs text-gray-500">
-                <Info size={12} /> 模拟价=计划价×策略；毛利=(模拟价-成本价)×模拟量
+                <Info size={12} /> 模拟价=基线价×策略；毛利=(模拟价-成本价)×模拟量
               </span>
             </div>
 
@@ -1040,7 +1144,7 @@ export default function WhatIfPage() {
                   <thead className="sticky top-0 bg-gray-100 text-xs text-gray-500">
                     <tr>
                       <th className="p-2">型号</th>
-                      <th className="p-2">计划价格</th>
+                      <th className="p-2">基线价格</th>
                       <th className="p-2">基线预测</th>
                       <th className="p-2 text-blue-700">模拟预测</th>
                       <th className="p-2 text-emerald-700">模拟销售额</th>
@@ -1057,7 +1161,7 @@ export default function WhatIfPage() {
                   </thead>
                   <tbody className="divide-y divide-gray-100">
                     {rows.map((sku, i) => {
-                      const tone = statusTone(sku.status);
+                      const tone = statusTone(sku.status || "");
                       const { simAmount, grossProfit } = rowMetrics(sku);
                       return (
                         <tr
@@ -1081,7 +1185,7 @@ export default function WhatIfPage() {
                             </div>
                           </td>
                           <td className="p-2 tabular-nums text-gray-700">
-                            {formatPrice(sku.plan_price)}
+                            {formatPrice(sku.baseline_price)}
                           </td>
                           <td className="p-2 tabular-nums text-gray-500">
                             {formatQty(sku.baseline_qty)}
@@ -1094,12 +1198,17 @@ export default function WhatIfPage() {
                           </td>
                           <td
                             className={`p-2 tabular-nums font-medium ${
-                              grossProfit >= 0 ? "text-emerald-700" : "text-red-600"
+                              grossProfit == null
+                                ? "text-gray-400"
+                                : grossProfit >= 0
+                                  ? "text-emerald-700"
+                                  : "text-red-600"
                             }`}
                           >
-                            {sku.cost_price != null
-                              ? formatAmount(grossProfit)
-                              : "-"}
+                            {grossProfit == null ? "暂无数据" : formatAmount(grossProfit)}
+                            {grossProfit != null && sku.gross_profit_status === "partial" ? (
+                              <span className="ml-1 text-xs font-normal text-amber-600">部分数据</span>
+                            ) : null}
                           </td>
                           <td className="bg-purple-50/50 p-2">
                             <div className="text-xs font-medium text-purple-700">

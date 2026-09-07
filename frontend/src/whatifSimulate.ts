@@ -52,34 +52,34 @@ export function formatPctParam(pct: number): string {
 
 export function strategiesForStatusGroup(
   catalog: WhatIfStrategyMeta[],
-  status: string,
+  status?: string | null,
 ): WhatIfStrategyMeta[] {
   const group =
     status === "淘汰" ? "eol" : status === "新品" ? "new" : "general";
   return catalog.filter((s) => s.statuses.includes(group));
 }
 
-export function defaultStrategyId(status: string): string {
+export function defaultStrategyId(status?: string | null): string {
   void status;
   return "maintain";
 }
 
 export function simulateRow(input: {
   baseline_qty: number;
-  plan_price: number | null;
+  baseline_price: number | null;
   strategy_id: string;
   param: string;
   ed: number;
   traffic_tier?: TrafficTierId | null;
-}): { sim_qty: number; sim_price: number } {
+}): { sim_qty: number; sim_price: number | null } {
   const {
     baseline_qty: baseline,
-    plan_price,
+    baseline_price,
     strategy_id: sid,
     param,
     ed,
   } = input;
-  const basePrice = plan_price ?? 0;
+  const basePrice = baseline_price;
 
   let sim_price = basePrice;
   let sim_qty = baseline;
@@ -87,13 +87,13 @@ export function simulateRow(input: {
   if (sid === "price_cut") {
     let pct = parseParamPct(param) ?? -0.08;
     if (pct > 0) pct = -Math.abs(pct);
-    sim_price = basePrice * (1 + pct);
+    sim_price = basePrice == null ? null : basePrice * (1 + pct);
     const lift = Math.min(0.8, Math.max(0, ed * Math.abs(pct)));
     sim_qty = baseline * (1 + lift);
   } else if (sid === "eol_clearance") {
     let pct = parseParamPct(param) ?? -0.3;
     if (pct > 0) pct = -Math.abs(pct);
-    sim_price = basePrice * (1 + pct);
+    sim_price = basePrice == null ? null : basePrice * (1 + pct);
     sim_qty = baseline * 0.65;
   } else if (sid === "traffic_boost") {
     const tier =
@@ -109,7 +109,7 @@ export function simulateRow(input: {
     sim_qty = baseline * (1 + Math.max(0, lift));
   } else if (sid === "bundle") {
     const atv = parseParamPct(param) ?? 0.15;
-    sim_price = basePrice * (1 + Math.max(0, atv));
+    sim_price = basePrice == null ? null : basePrice * (1 + Math.max(0, atv));
     sim_qty = baseline * 1.1;
   } else if (sid === "prelaunch") {
     sim_qty = baseline * 1.12;
@@ -118,7 +118,7 @@ export function simulateRow(input: {
 
   return {
     sim_qty: Math.round(sim_qty * 10) / 10,
-    sim_price: Math.round(sim_price * 100) / 100,
+    sim_price: sim_price == null ? null : Math.round(sim_price * 100) / 100,
   };
 }
 

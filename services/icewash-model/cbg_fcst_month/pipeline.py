@@ -74,7 +74,7 @@ class SalesForecastingPipeline:
         """用替代关系拼接前的当月销量覆盖输出，避免新品展示老品继承量。"""
         return SalesForecastingPipeline._restore_own_retail(current_month_results, source_sales)
 
-    def run(self, target_month, progress_callback=None):
+    def run(self, target_month, progress_callback=None, forecast_horizon=None):
         def _report(message: str) -> None:
             if progress_callback:
                 progress_callback(message)
@@ -158,10 +158,13 @@ class SalesForecastingPipeline:
 
         _report("当月流速推算与历史数据合并完成")
 
-        # 生成预测月份
+        # 生成预测月份。接口请求可以缩短模型计算范围；未指定时保持
+        # Config.FORECAST_MONTHS 的既有默认口径（当前为 N+1~N+7）。
+        horizon = int(forecast_horizon or self.config.FORECAST_MONTHS)
+        horizon = max(1, min(horizon, 12))
         forecast_months = [
             (pd.to_datetime(target_month) + relativedelta(months=i)).strftime('%Y-%m-%d')
-            for i in range(self.config.FORECAST_MONTHS)
+            for i in range(horizon)
         ]
 
         current_data = initial_full_data.query('月份 >= "2021-01-01" and 月份 < @target_month').copy()

@@ -1,7 +1,6 @@
 """T10 SSE hub 单测：双客户端广播、断连清理、载荷 schema（附录 A）。"""
 
 import asyncio
-import json
 
 import pytest
 
@@ -58,6 +57,27 @@ async def test_detach_on_stale():
     s._last_activity = _t.monotonic() - 60  # noqa: SLF001
     await hub.publish(cid, EVT_DONE, SsePayload.done("m-2", "final", "completed"))
     assert len(hub._clients.get(cid, ())) == 0  # noqa: SLF001
+
+
+@pytest.mark.asyncio
+async def test_idle_receiver_refreshes_activity_for_long_turn(monkeypatch):
+    """A collector polling an idle stream must survive a cold forecast."""
+    import app.sse.hub as hub_module
+
+    monkeypatch.setattr(hub_module, "SSE_PING_INTERVAL_S", 0.001)
+    hub = Hub()
+    cid = "conv-long-turn"
+    s = SSEStreamer(cid)
+    await hub.attach(cid, s)
+
+    import time as _t
+
+    s._last_activity = _t.monotonic() - 60  # noqa: SLF001
+    assert await s.recv() is None
+    await hub.publish(cid, EVT_DONE, SsePayload.done("m-long", "final", "completed"))
+    event, data, _seq = await asyncio.wait_for(s.queue.get(), timeout=1.0)
+    assert event == EVT_DONE
+    assert data["status"] == "completed"
 
 
 def test_payload_schema():

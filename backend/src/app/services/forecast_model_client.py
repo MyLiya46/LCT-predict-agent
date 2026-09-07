@@ -7,12 +7,13 @@ task; the Excel file is an offline compatibility path only.
 from __future__ import annotations
 
 import asyncio
+import inspect
 import json
 import re
 from collections.abc import AsyncIterator, Mapping
 from datetime import datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Awaitable, Callable
 
 import httpx
 
@@ -114,16 +115,32 @@ def output_path_for(system_forecast_number: str, settings: Settings | None = Non
     return resolve_output_dir(settings) / f"output_{system_forecast_number}.xlsx"
 
 
-def run_key(category: str, forecast_month: str | None) -> str:
-    """Stable idempotency key shared by API retries for a category/month run."""
+def run_key(category: str, forecast_month: str | None, horizon: int | None = None) -> str:
+    """Stable idempotency key for a category/month/horizon run.
+
+    Calls that omit ``horizon`` keep the historical category/month identifier
+    for workbook and API compatibility.  Agent/model runs include the
+    requested horizon so a completed three-month task cannot satisfy a later
+    seven-month request for the same base month.
+    """
     category = normalize_category(category)
-    return f"AG_{category}_{_month_key(forecast_month)}"
+    key = f"AG_{category}_{_month_key(forecast_month)}"
+    if horizon is None:
+        return key
+    try:
+        normalized_horizon = int(horizon)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("horizon 必须是 1 到 12 的整数") from exc
+    if not 1 <= normalized_horizon <= 12:
+        raise ValueError("horizon 必须是 1 到 12 的整数")
+    return f"{key}-H{normalized_horizon}"
 
 
 def _build_payload(
     *,
     category: str,
     forecast_month: str | None = None,
+    forecast_horizon: int | None = None,
     settings: Settings | None = None,
     system_forecast_number: str | None = None,
     product_line: str | None = None,
@@ -142,8 +159,8 @@ def _build_payload(
                 break
     if category not in batch_map:
         raise ValueError(f"未配置品类批次号: {category}")
-    number = system_forecast_number or run_key(category, forecast_month)
-    return {
+    number = system_forecast_number or run_key(category, forecast_month, forecast_horizon)
+    payload = {
         "systemForecastNumber": number,
         "productLine": product_line or settings.forecast_default_product_line,
         "reporter": reporter or settings.forecast_reporter,
@@ -153,6 +170,9 @@ def _build_payload(
         "saveTestData": False,
         "categoryBatchMappingDTOList": [{"category": category, **batch_map[category]}],
     }
+    if forecast_horizon is not None:
+        payload["forecastHorizon"] = int(forecast_horizon)
+    return payload
 
 
 class ForecastModelClient:
@@ -237,12 +257,21 @@ class ForecastModelClient:
             )
         return dict(task)
 
-    async def poll_events(self, task_id: str) -> AsyncIterator[dict[str, Any]]:
+    async def poll_events(
+        self,
+        task_id: str,
+        *,
+        progress_callback: Callable[[Mapping[str, Any]], Awaitable[None] | None] | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
         """Yield task snapshots until a terminal status or timeout is reached."""
         started = asyncio.get_running_loop().time()
         while True:
             task = await self.get_task(task_id)
             yield task
+            if progress_callback is not None:
+                callback_result = progress_callback(task)
+                if inspect.isawaitable(callback_result):
+                    await callback_result
             status = task.get("status")
             if status in {"completed", "failed", "cancelled"}:
                 return
@@ -250,11 +279,17 @@ class ForecastModelClient:
                 raise ForecastModelError(f"预测模型任务超时: {task_id}", payload=task)
             await asyncio.sleep(max(0.0, self.settings.forecast_poll_interval_sec))
 
-    async def refresh(self, task_id: str, *, wait: bool = True) -> dict[str, Any]:
+    async def refresh(
+        self,
+        task_id: str,
+        *,
+        wait: bool = True,
+        progress_callback: Callable[[Mapping[str, Any]], Awaitable[None] | None] | None = None,
+    ) -> dict[str, Any]:
         if not wait:
             return await self.get_task(task_id)
         latest: dict[str, Any] | None = None
-        async for latest in self.poll_events(task_id):
+        async for latest in self.poll_events(task_id, progress_callback=progress_callback):
             pass
         assert latest is not None
         return self.validate_completed(latest)
@@ -265,14 +300,24 @@ class ForecastModelClient:
         category: str,
         forecast_month: str | None = None,
         wait: bool = True,
+        horizon: int | None = None,
+        progress_callback: Callable[[Mapping[str, Any]], Awaitable[None] | None] | None = None,
         **kwargs: Any,
     ) -> dict[str, Any]:
-        number = run_key(category, forecast_month)
+        number = run_key(category, forecast_month, horizon)
         task_id = self._runs.get(number)
         if task_id:
-            task = await self.refresh(task_id, wait=wait)
-            if task.get("status") == "completed":
-                return {"system_forecast_number": number, "task": task, "reused": True}
+            try:
+                task = await self.refresh(task_id, wait=wait, progress_callback=progress_callback)
+            except ForecastModelError as exc:
+                payload = exc.payload
+                terminal_failure = isinstance(payload, Mapping) and payload.get("status") in {"failed", "cancelled"}
+                if not terminal_failure:
+                    raise
+                self._runs.pop(number, None)
+            else:
+                if task.get("status") == "completed":
+                    return {"system_forecast_number": number, "task": task, "reused": True}
         else:
             # The model persists tasks across its own restarts.  Re-discover a
             # task by its deterministic run key so a backend restart cannot
@@ -291,9 +336,17 @@ class ForecastModelClient:
                 if not discovered:
                     continue
                 self._runs[number] = discovered
-                task = await self.refresh(discovered, wait=wait)
-                if task.get("status") == "completed":
-                    return {"system_forecast_number": number, "task": task, "reused": True}
+                try:
+                    task = await self.refresh(discovered, wait=wait, progress_callback=progress_callback)
+                except ForecastModelError as exc:
+                    payload = exc.payload
+                    terminal_failure = isinstance(payload, Mapping) and payload.get("status") in {"failed", "cancelled"}
+                    if not terminal_failure:
+                        raise
+                    self._runs.pop(number, None)
+                else:
+                    if task.get("status") == "completed":
+                        return {"system_forecast_number": number, "task": task, "reused": True}
                 break
         payload = _build_payload(
             category=category,
@@ -303,13 +356,14 @@ class ForecastModelClient:
             product_line=kwargs.get("product_line"),
             reporter=kwargs.get("reporter"),
             generate_time=kwargs.get("generate_time"),
+            forecast_horizon=horizon,
         )
         submitted = await self.submit(payload)
         task_id = str(submitted.get("task_id") or "")
         if not task_id:
             raise ForecastModelError("预测模型提交响应缺少 task_id", payload=submitted)
         self._runs[number] = task_id
-        task = await self.refresh(task_id, wait=wait)
+        task = await self.refresh(task_id, wait=wait, progress_callback=progress_callback)
         return {"system_forecast_number": number, "task": task, "reused": False}
 
 
@@ -332,8 +386,13 @@ async def get_task(task_id: str) -> dict[str, Any]:
     return await get_forecast_model_client().get_task(task_id)
 
 
-async def refresh(task_id: str, *, wait: bool = True) -> dict[str, Any]:
-    return await get_forecast_model_client().refresh(task_id, wait=wait)
+async def refresh(
+    task_id: str,
+    *,
+    wait: bool = True,
+    progress_callback: Callable[[Mapping[str, Any]], Awaitable[None] | None] | None = None,
+) -> dict[str, Any]:
+    return await get_forecast_model_client().refresh(task_id, wait=wait, progress_callback=progress_callback)
 
 
 async def ensure_run(**kwargs: Any) -> dict[str, Any]:

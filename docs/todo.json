@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "revision": 56,
-  "updated_at": "2026-09-03T08:17:49Z",
+  "revision": 95,
+  "updated_at": "2026-09-04T08:34:47Z",
   "tasks": [
     {
       "id": "T01",
@@ -221,7 +221,189 @@
       "plan": "plans/T21-whatif-async-simulation-workflow-2026-09-03.md",
       "status": "completed",
       "acceptance": "14 \u4e2a\u804a\u5929/What-if \u5b9a\u5411\u6d4b\u8bd5\u901a\u8fc7\uff1bbackend \u5176\u4f59\u5168\u91cf 141 passed\uff08test_llm_0.py \u56e0\u672a\u914d\u7f6e LLM_API_KEYS/LLM_BASE_URL/LLM_DEFAULT_MODEL \u5728\u6536\u96c6\u9636\u6bb5\u4e3b\u52a8\u9000\u51fa\uff09\uff1bruff\u3001\u6a21\u578b py_compile\u3001frontend npm run build \u901a\u8fc7\uff1b\u771f\u5b9e 8000\u21928001 baseline/simulate/optimize \u8f6e\u8be2\u901a\u8fc7"
+    },
+    {
+      "id": "T22",
+      "title": "\u9884\u6d4b\u660e\u7ec6\u5951\u7ea6\u4e0e\u4ef7\u683c\u6301\u4e45\u5316\uff08prediction-detail-contract-price-cost\uff09",
+      "blockedBy": [
+        "T21"
+      ],
+      "plan": "plans/T22-prediction-detail-contract-price-cost-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "T22 completed: plan_price migration 0005 applied; relay contract tests 2 passed; model pg_sync compiled. Alembic check is not used because unrelated pre-existing schema type drift is reported."
+    },
+    {
+      "id": "T23",
+      "title": "\u516d\u4e2a\u6708\u578b\u53f7\u7ea7\u57fa\u7ebf\u6c47\u603b\uff08six-month-sku-aggregation\uff09",
+      "blockedBy": [
+        "T22"
+      ],
+      "plan": "plans/T23-six-month-sku-aggregation-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "T23 completed: baseline contract and SKU aggregation tests 4 passed; frontend npm run build passed; summary remains full across limit and details preserved; plan lint passed."
+    },
+    {
+      "id": "T24",
+      "title": "\u6bdb\u5229\u8986\u76d6\u4e0e\u5e93\u5b58\u5468\u8f6c\u5c55\u793a\uff08margin-inventory-metrics\uff09",
+      "blockedBy": [
+        "T23"
+      ],
+      "plan": "plans/T24-margin-inventory-metrics-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "T24 completed: cost coverage and gross margin handling corrected; inventory unavailable status with 45\u5929\uff08\u5360\u4f4d\uff09 label exposed; backend test 2 passed; frontend build passed; plan lint passed."
+    },
+    {
+      "id": "T25",
+      "title": "\u9500\u91cf\u4e0e\u9500\u552e\u989d\u53cc\u76ee\u6807\u4f18\u5316\uff08sales-target-optimization\uff09",
+      "blockedBy": [
+        "T23",
+        "T24"
+      ],
+      "plan": "plans/T25-sales-target-optimization-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "T25 completed: target_revenue is optional and fully propagated; details receive one SKU strategy and aggregate real sim_qty/sim_amount/sim_price; dual-target scoring and legacy quantity-only behavior tested (6 passed); frontend build and model compile passed."
+    },
+    {
+      "id": "T26",
+      "title": "What-if \u5951\u7ea6\u96c6\u6210\u9a8c\u6536\uff08whatif-contract-integration-acceptance\uff09",
+      "blockedBy": [
+        "T22",
+        "T23",
+        "T24",
+        "T25"
+      ],
+      "plan": "plans/T26-whatif-contract-integration-acceptance-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "T26 completed: offline and runtime What-if contract integration passed; plan validation/lint, targeted tests, seed/schema, frontend build, Alembic 0005 head, health, authenticated baseline details/limit invariant, inventory fallback, and dual-target optimize all verified."
+    },
+    {
+      "id": "T27",
+      "title": "Agent optimize \u54c1\u7c7b\u5951\u7ea6\u4e0e\u7a7a\u57fa\u7ebf\u4fdd\u62a4\uff08agent-category-contract-empty-baseline\uff09",
+      "blockedBy": [
+        "T26"
+      ],
+      "plan": "plans/T27-agent-category-contract-empty-baseline-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "worker offline acceptance: capability/model What-if tests 10 passed; model compile, plan lint, and git diff check passed"
+    },
+    {
+      "id": "T28",
+      "title": "\u5386\u53f2\u9500\u552e\u989d\u6301\u4e45\u5316\u4e0e What-if \u57fa\u51c6\u4ef7\u89e3\u6790\uff08historical-price-baseline-resolution\uff09",
+      "blockedBy": [
+        "T26"
+      ],
+      "plan": "plans/T28-historical-price-baseline-resolution-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "worker plus coordinator revalidation: historical retail amount and price baseline tests 6 passed, 1 skipped; pg_sync compiled; Alembic 0006 (head); history-last-valid-month priority revalidated"
+    },
+    {
+      "id": "T29",
+      "title": "What-if \u89c4\u5219\u7b56\u7565\u57fa\u51c6\u4ef7\u4e0e\u7f3a\u5931\u4ef7\u5904\u7406\uff08whatif-price-strategy-resolution\uff09",
+      "blockedBy": [
+        "T27",
+        "T28"
+      ],
+      "plan": "plans/T29-whatif-price-strategy-resolution-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "T29 completed: historical baseline price strategy tests 8 passed; whatif/server py_compile passed; frontend npm run build passed; plan lint passed."
+    },
+    {
+      "id": "T30",
+      "title": "What-if Agent \u4e0e\u57fa\u51c6\u4ef7\u95ed\u73af\u9a8c\u6536\uff08whatif-agent-price-integration-acceptance\uff09",
+      "blockedBy": [
+        "T27",
+        "T28",
+        "T29"
+      ],
+      "plan": "plans/T30-whatif-agent-price-integration-acceptance-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "T30 completed: plan validation/lint, Alembic 0006 head, seed.v2__icewash_tools, health/page checks, What-if regression 20 passed/1 skipped, model compile, frontend build; real AG_\u51b0\u7bb1_2026-08 baseline 61 SKUs/4458 details/6 months; backend proxy and internal Agent optimize both returned 61 non-empty strategies. Real price coverage is missing, so sim_price/sim_amount/amount_gap remain null and inventory shows 45\u5929\uff08\u5360\u4f4d\uff09."
+    },
+    {
+      "id": "T31",
+      "title": "Agent \u9884\u6d4b/\u5f52\u56e0\u5de5\u4f5c\u6d41\u4e0e\u8bc1\u636e\u95ed\u73af\uff08agent-forecast-attribution-workflow\uff09",
+      "blockedBy": [
+        "T30"
+      ],
+      "plan": "plans/T31-agent-forecast-attribution-workflow-2026-09-04.md",
+      "status": "completed",
+      "acceptance": {
+        "runtime_status": "completed_offline",
+        "plan_lint": 0,
+        "schema_capability_pytest": "7 passed",
+        "forecast_attribution_pytest": "11 passed",
+        "workflow_pytest": "4 passed",
+        "full_targeted_pytest": "16 passed",
+        "external": "not specified"
+      }
+    },
+    {
+      "id": "T32",
+      "title": "\u804a\u5929\u9884\u6d4b/\u767d\u76d2\u5f52\u56e0\u590d\u5408\u7ed3\u679c\u5951\u7ea6\uff08chat-forecast-attribution-envelope\uff09",
+      "blockedBy": [
+        "T31"
+      ],
+      "plan": "plans/T32-chat-forecast-attribution-envelope-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "completed_offline\uff1bT32 lint \u548c\u5b9a\u5411 pytest \u901a\u8fc7"
+    },
+    {
+      "id": "T33",
+      "title": "\u804a\u5929 What-if \u7b56\u7565\u77e9\u9635\u4e0e\u8fbe\u6210\u8d8b\u52bf\uff08chat-whatif-strategy-envelope\uff09",
+      "blockedBy": [
+        "T32"
+      ],
+      "plan": "plans/T33-chat-whatif-strategy-envelope-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "completed_offline\uff1bT33 lint\u300125\u9879What-if/T32\u79bb\u7ebfpytest\u3001\u6a21\u578bpy_compile\u5747\u901a\u8fc7"
+    },
+    {
+      "id": "T34",
+      "title": "\u804a\u5929\u5de5\u4f5c\u53f0\u53ef\u89c6\u5316\u4e0e\u4e09\u5b50\u680f\u590d\u7528\uff08chat-workbench-visualization-tabs\uff09",
+      "blockedBy": [
+        "T33"
+      ],
+      "plan": "plans/T34-chat-workbench-visualization-tabs-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "completed_offline\uff1bT34 lint\u3001frontend npm build\u3001prior_intent\u9759\u6001\u68c0\u67e5\u5747\u901a\u8fc7"
+    },
+    {
+      "id": "T35",
+      "title": "Agent \u9884\u6d4b\u4e0e What-if \u573a\u666f\u95ed\u73af\u9a8c\u6536\uff08agent-prediction-scenarios-acceptance\uff09",
+      "blockedBy": [
+        "T31",
+        "T32",
+        "T33",
+        "T34"
+      ],
+      "plan": "plans/T35-agent-prediction-scenarios-acceptance-2026-09-04.md",
+      "status": "completed",
+      "acceptance": "completed_offline\uff1bT35\u79bb\u7ebf37\u9879\u56de\u5f52/\u5b9a\u54118\u9879\u56de\u5f52\u3001\u6a21\u578bpy_compile\u3001\u524d\u7aefbuild\u3001seed\u5e42\u7b49\u3001\u670d\u52a1\u5065\u5eb7\u548cPG\u53ea\u8bfb\u57fa\u7ebf\u5747\u901a\u8fc7\uff1b\u8ba4\u8bc1SSE\u56e0\u7f3a\u5c11AGENT_TEST_JWT\u4e0eAGENT_TEST_FORECAST_MONTH\u8bb0\u4e3aexternal_blocked"
     }
+  ],
+  "topology": {
+    "L5": [
+      "T31"
+    ],
+    "L6": [
+      "T32"
+    ],
+    "L7": [
+      "T33"
+    ],
+    "L8": [
+      "T34"
+    ],
+    "L9": [
+      "T35"
+    ]
+  },
+  "key_contracts": [
+    "\u804a\u5929\u7aef\u53ea\u6865\u63a5\u73b0\u6709 PG\u3001Attribution \u548c icewash What-if \u80fd\u529b\uff0c\u4e0d\u590d\u5236\u9884\u6d4b\u6216\u7b56\u7565\u516c\u5f0f\u3002",
+    "\u5386\u53f2\u8bf7\u6c42\u4f7f\u7528 get_history\uff1b\u672a\u6765\u9884\u6d4b\u5fc5\u987b\u4f7f\u7528 submit_forecast/get_forecast_result\uff1b\u9884\u6d4b\u5206\u6790\u8fd8\u8981\u4f7f\u7528 forecast \u7ed3\u679c\u9a71\u52a8\u7684 get_attribution\u3002",
+    "\u9884\u6d4b+\u5f52\u56e0 envelope \u4f7f\u7528 composite chart\uff1bWhat-if envelope \u4f7f\u7528 strategy_dashboard chart\uff1b\u65e7 chart.option \u548c intent \u5b57\u6bb5\u4fdd\u6301\u517c\u5bb9\u3002",
+    "What-if \u9ed8\u8ba4\u6cbf\u7528\u5de5\u4f5c\u53f0 N+1\u2026N+6 \u516d\u4e2a\u6708\u7d2f\u8ba1\u53e3\u5f84\uff1b\u65e0\u76ee\u6807\u65f6\u4ee5\u5168\u91cf baseline \u4f5c\u4e3a\u663e\u5f0f\u9ed8\u8ba4\u76ee\u6807\uff0c\u4ef7\u683c/\u6210\u672c/\u5e93\u5b58\u7f3a\u5931\u4fdd\u6301 null/status\u3002",
+    "limit \u53ea\u9650\u5236\u5206\u9875\u6216\u53ef\u89c1\u660e\u7ec6\uff0c\u4e0d\u80fd\u6539\u53d8\u516d\u4e2a\u6708\u9500\u91cf\u3001\u9500\u552e\u989d\u3001\u6bdb\u5229\u3001\u8fbe\u6210\u7387\u548c\u7b56\u7565\u77e9\u9635\u7684\u5168\u91cf\u6c47\u603b\u3002"
   ],
   "markdown_view": {
     "prefix": "<!-- GENERATED FROM docs/todo.json; DO NOT EDIT -->\n# LCT-predict-agent \u00b7 \u7f1d\u5408\u91cd\u6784\u5b9e\u65bd\u4efb\u52a1\u6e05\u5355\uff08docs/todo.md\uff09\n\n> \u65e5\u671f\uff1a2026-09-01\n> \u72b6\u6001\uff1a\u5168\u65b0\u5f00\u5c40\u2014\u2014\u7f1d\u5408 `reference_repo/predict-agent/backend-backup`\uff08\u901a\u7528 Agent \u540e\u7aef\u58f3\uff09+ `reference_repo/predict-agent/frontend-ref`\uff08\u51b0\u6d17\u5de5\u4f5c\u53f0 React \u524d\u7aef\uff09\uff0c\u65e7 plans/todo \u5df2\u6089\u6570\u5220\u9664\uff0c\u672c\u6e05\u5355\u4ece T01 \u8d77\u3002\n> \u8ba1\u5212\u6587\u4ef6\u76ee\u5f55\uff1adocs/plans/\n> \u8bf4\u660e\uff1a\u672c\u6e05\u5355\u4e0e docs/plans/ \u4e0b\u4efb\u52a1\u8ba1\u5212\u4e00\u4e00\u5bf9\u5e94\uff08`\u4e00\u4efb\u52a1\u4e00\u6587\u4ef6`\uff09\uff0c\u4ee5\u300c\u62d3\u6251\u987a\u5e8f\u300d\u6392\u5217\uff08\u524d\u7f6e\u4efb\u52a1\u5728\u524d\uff09\u3002\n\n---\n\n## \u4e00\u3001\u4efb\u52a1\u603b\u89c8\uff08\u62d3\u6251\u987a\u5e8f = \u5efa\u8bae\u6267\u884c\u987a\u5e8f\uff09\n\n| \u5e8f\u53f7 | \u4efb\u52a1 ID | \u6807\u9898\uff08\u82f1\u6587\u77ed\u540d\uff09 | blockedBy | \u72b6\u6001 | \u9a8c\u6536\u8981\u70b9\uff08\u6458\u8981\uff09 | \u8ba1\u5212\u6587\u4ef6 |\n|---|---|---|---|---|---|---|\n",
